@@ -1,0 +1,10 @@
+# 編集前バックアップ（手元だけに残す）
+index.html.bak
+index.html.bak2
+index.html.bak3
+
+# 開発中の確認用スクリーンショット
+_shots/
+
+# OS が作る隠しファイル
+.DS_Store
