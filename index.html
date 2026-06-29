@@ -345,6 +345,8 @@ function newPlayer() {
     dodge: 0,              // 被弾を確率で完全回避（0〜0.30）
     xpMul: 1,              // XP獲得倍率
     vampire: 0,            // 敵キル時HP回復量（吸血アップグレード）
+    dashCd: 0,             // ダッシュのクールダウン（3秒）
+    dashing: 0,            // ダッシュ中の残り時間（0.18秒、この間無敵）
     facing: { x: 1, y: 0 },// 向き（移動方向）
     weapons: {
       // オートエイムの弾。最初から所持
@@ -393,6 +395,8 @@ function resetGame(mode) {
     banner: null,           // 画面中央に出す演出バナー {text, sub, life, color}
     endlessLoops: 0,        // エンドレスで周回した回数（難易度上昇）
     choices: [],            // レベルアップ時の3択
+    rerollsLeft: 1,         // レベルアップ時の引き直し残り回数
+    hordeCd: 0,             // 群れスポーンのクールダウン
     // オーバードライブ（15連続キルで発動、速度・火力が一時ブースト）
     overdriveKills: 0, overdriveTimer: 0, overdrive: false, overdriveLife: 0, overdriveCooldown: 0,
   };
@@ -644,15 +648,26 @@ function buildUpgradePool() {
 
 function rollChoices() {
   let pool = buildUpgradePool();
-  // 上限に達したものは除外（例: ボルト同時発射の最大）
   pool = pool.filter(o => !(o.max && o.lvOf && o.lvOf() >= o.max));
-  // 進化は強力なので優先的に1枚は見せたい：進化候補があれば必ず先頭に1つ確定
+
   const evos = pool.filter(o => o.isEvo);
-  const rest = pool.filter(o => !o.isEvo);
-  shuffle(rest);
+  const weaponUpgrades = pool.filter(o => !o.isEvo && o.id && /^(bolt|orbit|aura|nova|thunder|frost|mine)/.test(o.id));
+  const rest = pool.filter(o => !o.isEvo && !(o.id && /^(bolt|orbit|aura|nova|thunder|frost|mine)/.test(o.id)));
+
+  shuffle(evos); shuffle(weaponUpgrades); shuffle(rest);
+
   const picks = [];
-  if (evos.length) { shuffle(evos); picks.push(evos[0]); }
+  // 進化があれば最優先で1枚
+  if (evos.length) picks.push(evos[0]);
+  // 武器系を少なくとも1枚含める保証
+  if (weaponUpgrades.length && picks.length < 3) picks.push(weaponUpgrades[0]);
+  // 残りをrestで埋める
   for (const o of rest) { if (picks.length >= 3) break; picks.push(o); }
+  // まだ足りなければ武器系の残りで補充
+  for (const o of weaponUpgrades.slice(1)) { if (picks.length >= 3) break; picks.push(o); }
+
+  // 順序をシャッフルして固定位置に見えないようにする
+  shuffle(picks);
   game.choices = picks.slice(0, 3);
 }
 function shuffle(a) { for (let i = a.length - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; [a[i], a[j]] = [a[j], a[i]]; } }
@@ -672,10 +687,20 @@ function applyChoice(idx) {
   const c = game.choices[idx];
   if (!c) return;
   c.apply();
-  pointer.down = false; // ★選択直後に自機が動かないように（クリック長押しの誤移動を防ぐ）
+  // レベルアップ後に画面内のXPジェムを全部自動吸引（Cycle4）
+  for (const gem of game.gems) { gem.vx += (game.player.x - gem.x) * 4; gem.vy += (game.player.y - gem.y) * 4; }
+  game.rerollsLeft = 1; // 次のレベルアップのためにリセット
+  pointer.down = false;
   state = 'playing';
   if (c.isEvo) { Sound.evolve(); shake(10); setBanner('EVOLVED!', c.name, '#ffd23f'); }
   else Sound.pick();
+}
+
+function rerollChoices() {
+  if (!game || game.rerollsLeft <= 0) return;
+  game.rerollsLeft--;
+  rollChoices();
+  Sound.pick();
 }
 
 // =========================================================================
@@ -741,9 +766,10 @@ function killEnemy(e) {
     }
   }
 
-  // XPジェムをドロップ（大型は複数に分割して撒く＝回収が気持ちいい）
+  // XPジェムをドロップ。コンボ継続中はボーナス（最大2倍）
+  const comboBns = Math.min(2.0, 1 + (game.combo > 3 ? (game.combo - 3) * 0.04 : 0));
   const drops = e.boss ? 16 : (e.kind === 'miniboss' ? 8 : (e.elite ? 4 : 1));
-  const per = Math.max(1, Math.round(e.xp / drops));
+  const per = Math.max(1, Math.round(e.xp * comboBns / drops));
   for (let i = 0; i < drops; i++) {
     game.gems.push({ x: e.x + rand(-16, 16), y: e.y + rand(-16, 16), value: per, vx: rand(-40, 40), vy: rand(-40, 40), big: e.elite || isBig });
   }
@@ -872,6 +898,15 @@ function update(dt) {
   }
   for (const pt of g.trail) pt.life -= dt;
   g.trail = g.trail.filter(pt => pt.life > 0);
+
+  // ダッシュ中は移動速度×3で前進、無敵（Cycle5）
+  if (p.dashing > 0) {
+    p.dashing -= dt;
+    p.x += p.facing.x * p.speed * 3 * dt;
+    p.y += p.facing.y * p.speed * 3 * dt;
+    p.invuln = Math.max(p.invuln, p.dashing); // ダッシュ中は無敵
+  }
+  if (p.dashCd > 0) p.dashCd -= dt;
 
   // 回復（被弾後しばらくは止まる）・無敵時間
   if (p.regenDelay > 0) p.regenDelay -= dt;
@@ -1109,13 +1144,30 @@ function updateSpawning(dt) {
     g.spawnTimer = interval;
     const wave = g.mode === 'endless' ? WAVES.length - 1 : g.wave;
     const kind = pickSpawnKind(wave);
-    const eliteChance = clamp((g.time - 150) / 850, 0, 0.32) * pressure;
+    // wave3以降（time>270秒）は底上げして後半に確実にeliteが混じる
+    const eliteBase = g.wave >= 3 ? 0.10 : 0;
+    const eliteChance = clamp(eliteBase + (g.time - 150) / 700, 0, 0.40) * pressure;
     spawnEnemy(kind, { elite: Math.random() < eliteChance });
     const extra = Math.floor(g.time / 95) + (g.mode === 'endless' ? 2 : 0);
     for (let i = 0; i < extra && g.enemies.length < cap; i++) {
       if (Math.random() < 0.5) spawnEnemy(pickSpawnKind(wave));
     }
   }
+
+  // 群れスポーン（Cycle10）：wave2以降、30〜60秒間隔で4〜6体が一塊で出現
+  if (g.time > 90 && g.hordeCd <= 0) {
+    g.hordeCd = 30 + Math.random() * 30;
+    const wave = g.mode === 'endless' ? WAVES.length - 1 : g.wave;
+    const kind = pickSpawnKind(wave);
+    const count = 4 + Math.floor(Math.random() * 3);
+    const ang = Math.random() * TAU, rad = 580;
+    const bx = p.x + Math.cos(ang) * rad, by = p.y + Math.sin(ang) * rad;
+    for (let i = 0; i < count; i++) {
+      spawnEnemy(kind, { x: bx + rand(-40, 40), y: by + rand(-40, 40) });
+    }
+    setBanner('HORDE!', kind.toUpperCase() + ' ×' + count, '#ff9b3d');
+  }
+  if (g.hordeCd > 0) g.hordeCd -= dt;
 
   // ミニボス（ウェーブ境界で出現。種類をローテして固有攻撃を見せる）
   if (g.time >= g.miniBossAt && (g.mode === 'endless' || g.time < CLEAR_TIME)) {
@@ -1297,7 +1349,8 @@ function updateBolt(dt) {
     game.bullets.push({
       x: p.x, y: p.y, vx: Math.cos(a) * w.speed, vy: Math.sin(a) * w.speed,
       r: w.evolved ? 7 : 5, dmg: w.dmg * p.dmgMul * (game.overdrive ? 1.3 : 1), life: 1.1, pierce: w.pierce, kind: 'bolt',
-      color: w.evolved ? '#ffd23f' : '#ffe34d',
+      // dmgMulが高いほど橙→赤に変化（Cycle9）
+      color: w.evolved ? '#ffd23f' : (p.dmgMul > 1.5 ? '#ff6b3d' : p.dmgMul > 1.25 ? '#ffa33d' : '#ffe34d'),
     });
   }
   Sound.shoot();
@@ -1928,6 +1981,24 @@ function drawHUD() {
     ctx.fillText(game.combo + ' COMBO', W / 2, 92);
   }
 
+  // ボス・ミニボスのHPバーを画面下部中央に大きく表示（Cycle6）
+  const activeBoss = game.bossRef && !game.bossRef.dead ? game.bossRef
+    : game.enemies.find(e => !e.dead && (e.boss || e.kind === 'miniboss'));
+  if (activeBoss) {
+    const bw = 380, bh = 18, bx2 = (W - bw) / 2, by2 = H - 44;
+    const ratio = clamp(activeBoss.hp / activeBoss.maxHp, 0, 1);
+    const bossColor = activeBoss.boss ? '#ff4be0' : '#4be0ff';
+    ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fillRect(bx2 - 2, by2 - 2, bw + 4, bh + 4);
+    ctx.fillStyle = bossColor;
+    ctx.shadowColor = bossColor; ctx.shadowBlur = 16;
+    ctx.fillRect(bx2, by2, bw * ratio, bh);
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = 'rgba(255,255,255,.3)'; ctx.lineWidth = 1; ctx.strokeRect(bx2, by2, bw, bh);
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 12px sans-serif'; ctx.textAlign = 'center';
+    const bossLabel = activeBoss.boss ? 'FINAL BOSS' : ('MINI BOSS [' + (activeBoss.bossType || '') + ']');
+    ctx.fillText(bossLabel + '  ' + Math.ceil(activeBoss.hp) + ' / ' + Math.round(activeBoss.maxHp), W / 2, by2 - 6);
+  }
+
   // 操作ヒント（右下に小さく）。スマホはボタンを出すので文字ヒントは出さない
   if (!IS_TOUCH) {
     ctx.textAlign = 'right'; ctx.fillStyle = 'rgba(150,180,210,.6)'; ctx.font = '10px sans-serif';
@@ -2112,6 +2183,7 @@ function drawTitle() {
 
 // ---- レベルアップの3択 ----
 const cardRects = [];
+const rerollBtnRect = { x: 0, y: 0, w: 0, h: 0 };
 function drawLevelUp() {
   dimScreen(0.6);
   ctx.textAlign = 'center';
@@ -2153,6 +2225,19 @@ function drawLevelUp() {
     ctx.fillText('[ ' + (i + 1) + ' ]', x + cw / 2, y0 + ch - 16);
     cardRects.push({ x, y: y0, w: cw, h: ch, idx: i });
   }
+
+  // リロールボタン（Cycle10）
+  const rbw = 180, rbh = 38, rbx = (W - rbw) / 2, rby = y0 + ch + 18;
+  const canReroll = game.rerollsLeft > 0;
+  const hoverRb = pointer.x >= rbx && pointer.x <= rbx + rbw && pointer.y >= rby && pointer.y <= rby + rbh;
+  ctx.fillStyle = canReroll ? (hoverRb ? 'rgba(90,140,255,.95)' : 'rgba(40,70,140,.88)') : 'rgba(40,40,60,.6)';
+  ctx.strokeStyle = canReroll ? '#5c8aff' : '#384060';
+  ctx.lineWidth = 2;
+  roundRect(rbx, rby, rbw, rbh, 10); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = canReroll ? '#cfe8ff' : '#5a6a80';
+  ctx.font = 'bold 16px sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText('🔄 引き直し（残 ' + game.rerollsLeft + '）', W / 2, rby + 25);
+  rerollBtnRect.x = rbx; rerollBtnRect.y = rby; rerollBtnRect.w = rbw; rerollBtnRect.h = rbh;
 }
 
 // ---- 一時停止 ----
@@ -2279,6 +2364,20 @@ function drawResultStats() {
   ctx.fillText('SCORE ' + score, W / 2, H / 2 + 54);
   if (game.newBest) { ctx.fillStyle = '#ffd23f'; ctx.font = 'bold 16px sans-serif'; ctx.fillText('★ NEW BEST! ★', W / 2, H / 2 + 76); }
   else { ctx.fillStyle = '#9fb6d8'; ctx.font = '14px sans-serif'; ctx.fillText('BEST ' + best, W / 2, H / 2 + 76); }
+
+  // 取得していた武器一覧（Cycle7）
+  const weapons = Object.keys(game.player.weapons).filter(k => game.player.weapons[k].lv > 0);
+  if (weapons.length) {
+    ctx.font = '13px sans-serif'; ctx.fillStyle = '#9fb6d8';
+    ctx.fillText('使用した武器', W / 2, H / 2 + 100);
+    const iconW = 30, startX = W / 2 - (weapons.length * iconW) / 2 + iconW / 2;
+    ctx.font = '22px sans-serif';
+    for (let i = 0; i < weapons.length; i++) {
+      const wp = game.player.weapons[weapons[i]];
+      ctx.fillStyle = wp.evolved ? '#ffd23f' : '#fff';
+      ctx.fillText(WEAPON_META[weapons[i]].icon, startX + i * iconW, H / 2 + 122);
+    }
+  }
 }
 
 // ---- 描画ヘルパ ----
@@ -2325,10 +2424,18 @@ function handleMenuKey(k) {
   } else if (state === 'win') {
     if (k === 'r' || k === ' ' || k === 'enter') startGame('normal');
     else if (k === 'e') continueAsEndless();
+  } else if (state === 'playing') {
+    // Spaceでダッシュ（3秒CD、Cycle9）
+    if (k === ' ' && game && game.player && game.player.dashCd <= 0) {
+      game.player.dashing = 0.18;
+      game.player.dashCd = 3;
+    }
+    else if (k === 'r') rerollChoices(); // 引き直しキー（levelup以外では無効）
   } else if (state === 'levelup') {
     if (k === '1') applyChoice(0);
     else if (k === '2') applyChoice(1);
     else if (k === '3') applyChoice(2);
+    else if (k === 'r') rerollChoices();
   }
 }
 function handleClick() {
@@ -2336,6 +2443,11 @@ function handleClick() {
   else if (state === 'gameover' || state === 'win') startGame('normal');
   else if (state === 'paused' || state === 'status') { state = 'playing'; pointer.down = false; }
   else if (state === 'levelup') {
+    // リロールボタンのクリック判定
+    const rb = rerollBtnRect;
+    if (game.rerollsLeft > 0 && pointer.x >= rb.x && pointer.x <= rb.x + rb.w && pointer.y >= rb.y && pointer.y <= rb.y + rb.h) {
+      rerollChoices(); return;
+    }
     for (const c of cardRects) {
       if (pointer.x >= c.x && pointer.x <= c.x + c.w && pointer.y >= c.y && pointer.y <= c.y + c.h) { applyChoice(c.idx); break; }
     }
