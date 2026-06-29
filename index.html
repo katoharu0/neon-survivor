@@ -344,6 +344,7 @@ function newPlayer() {
     thorns: 0,             // 接触してきた敵への反射ダメージ
     dodge: 0,              // 被弾を確率で完全回避（0〜0.30）
     xpMul: 1,              // XP獲得倍率
+    vampire: 0,            // 敵キル時HP回復量（吸血アップグレード）
     facing: { x: 1, y: 0 },// 向き（移動方向）
     weapons: {
       // オートエイムの弾。最初から所持
@@ -379,6 +380,8 @@ function resetGame(mode) {
     bolts: [],              // 落雷の描画用ライン
     particles: [],
     texts: [],              // ダメージ数字などの浮き文字
+    healthOrbs: [],         // ヘルスオーブ（ドロップ回復アイテム）
+    trail: [],              // プレイヤーの移動トレイル
     player: newPlayer(),
     spawnTimer: 0,
     wave: 0,                // 現在のウェーブ番号
@@ -390,6 +393,8 @@ function resetGame(mode) {
     banner: null,           // 画面中央に出す演出バナー {text, sub, life, color}
     endlessLoops: 0,        // エンドレスで周回した回数（難易度上昇）
     choices: [],            // レベルアップ時の3択
+    // オーバードライブ（15連続キルで発動、速度・火力が一時ブースト）
+    overdriveKills: 0, overdriveTimer: 0, overdrive: false, overdriveLife: 0, overdriveCooldown: 0,
   };
   cam.x = 0; cam.y = 0; cam.shake = 0;
   // 開始バナー
@@ -473,22 +478,38 @@ function spawnEnemy(kindName, opts) {
   return e;
 }
 
-// ウェーブごとの「湧く敵の構成」。時間が進むほど種類が増えて光景が変わる
+// 各エネミーの出現スケジュール。wave0〜5 の重み（0=未登場）
+// 序盤ザコは後半でフェードアウトし、強敵に置き換わる
+const ENEMY_SCHED = {
+  grunt:    [1.4, 0.9, 0.45, 0.10, 0,    0   ],  // ならし専用。wave2でフェード、wave4で消滅
+  swift:    [0,   1.0, 0.65, 0.30, 0.08, 0   ],  // 高速型。wave4でほぼ消える
+  weaver:   [0,   0.6, 0.70, 0.55, 0.20, 0.10],  // 蛇行型。長く残るが後半減る
+  tank:     [0,   0,   0.80, 0.90, 0.85, 0.75],  // 重装型。wave2〜ずっと出る
+  splitter: [0,   0,   0.80, 0.70, 0.60, 0.55],  // 分裂型。wave2〜
+  spitter:  [0,   0,   0,    0.80, 0.70, 0.65],  // 遠距離型。wave3〜
+  dasher:   [0,   0,   0,    0.65, 0.70, 0.65],  // 突進型。wave3〜
+  orbiter:  [0,   0,   0,    0.50, 0.65, 0.65],  // 旋回型。wave3〜
+  bomber:   [0,   0,   0,    0,    0.65, 0.75],  // 自爆型。wave4〜
+  brute:    [0,   0,   0,    0,    0.60, 0.75],  // 重量型。wave4〜
+};
+
+// ウェーブ内の進行割合で次ウェーブへ重みを補間 → なめらかな敵種類の移行
 function pickSpawnKind(wave) {
-  // wave: 0..5。各ウェーブで出る敵の重みを変える
-  const tables = [
-    [['grunt', 1.0]],                                                                       // 0: ならし
-    [['grunt', 0.65], ['swift', 0.25], ['weaver', 0.10]],                                   // 1: 速い・蛇行
-    [['grunt', 0.42], ['swift', 0.2], ['weaver', 0.12], ['tank', 0.12], ['splitter', 0.14]],// 2: 分裂登場
-    [['grunt', 0.28], ['swift', 0.15], ['weaver', 0.11], ['tank', 0.12], ['splitter', 0.11], ['spitter', 0.08], ['dasher', 0.08], ['orbiter', 0.07]], // 3: 遠距離・突進・旋回
-    [['grunt', 0.2], ['swift', 0.13], ['weaver', 0.11], ['tank', 0.12], ['splitter', 0.11], ['spitter', 0.09], ['dasher', 0.08], ['bomber', 0.05], ['orbiter', 0.06], ['brute', 0.05]], // 4: 自爆・重装登場
-    [['grunt', 0.16], ['swift', 0.12], ['weaver', 0.1], ['tank', 0.12], ['splitter', 0.1], ['spitter', 0.1], ['dasher', 0.08], ['bomber', 0.07], ['orbiter', 0.08], ['brute', 0.07]], // 5: 全部入り
-  ];
-  const table = tables[clamp(wave, 0, tables.length - 1)];
-  let sum = 0; for (const [, w] of table) sum += w;
+  const wi = clamp(wave, 0, 5);
+  const frac = game ? clamp((game.time - wi * WAVE_LEN) / WAVE_LEN, 0, 1) : 0;
+  const entries = [];
+  for (const kind in ENEMY_SCHED) {
+    const ws = ENEMY_SCHED[kind];
+    const wA = ws[wi] || 0;
+    const wB = wi < 5 ? (ws[wi + 1] || 0) : wA;
+    const wt = lerp(wA, wB, frac);
+    if (wt > 0.001) entries.push([kind, wt]);
+  }
+  if (!entries.length) return 'tank';
+  let sum = 0; for (const [, wt] of entries) sum += wt;
   let r = Math.random() * sum;
-  for (const [kind, w] of table) { r -= w; if (r <= 0) return kind; }
-  return 'grunt';
+  for (const [kind, wt] of entries) { r -= wt; if (r <= 0) return kind; }
+  return entries[entries.length - 1][0];
 }
 
 // =========================================================================
@@ -612,6 +633,7 @@ function buildUpgradePool() {
   if (p.critChance < 0.5) pool.push({ id: 'crit', name: '会心', desc: '会心率 +8%（2.2倍ダメージ）', icon: '🎯', apply: () => { p.critChance += 0.08; } });
   if (p.armor < 0.45) pool.push({ id: 'armor', name: '装甲', desc: '被ダメージ -9%（上限45%）', icon: '🛡', apply: () => { p.armor = Math.min(0.45, p.armor + 0.09); } });
   pool.push({ id: 'greed', name: '強欲', desc: 'XP獲得量 +25%', icon: '💎', apply: () => { p.xpMul *= 1.25; } });
+  if (p.vampire < 12) pool.push({ id: 'vampire', name: '吸血', desc: 'キルごとに HP +3 回復（最大4回取得）', icon: '🩸', apply: () => { p.vampire = Math.min(12, p.vampire + 3); } });
   // ---- 追加パッシブ（種類を増やして組み立ての幅を出す） ----
   pool.push({ id: 'haste', name: '高速詠唱', desc: '全武器の発動が 8% 速くなる', icon: '⏩', apply: () => applyHaste(0.92) });
   pool.push({ id: 'thorns', name: 'スパイク装甲', desc: '接触した敵に反射ダメージ +16', icon: '🌵', apply: () => { p.thorns = (p.thorns || 0) + 16; } });
@@ -728,6 +750,26 @@ function killEnemy(e) {
   if (isBig) { shake(e.boss ? 26 : 16); }
   Sound.kill();
 
+  const p2 = game.player;
+  // 雑魚敵限定の処理
+  if (!isBig) {
+    // オーバードライブ：連続キル数を加算（15体でゲージMAX）
+    game.overdriveKills++;
+    game.overdriveTimer = 6; // 6秒以内に次を倒せばカウント維持
+    if (game.overdriveKills >= 15 && !game.overdrive && game.overdriveCooldown <= 0) {
+      game.overdrive = true; game.overdriveLife = 4.0; game.overdriveCooldown = 14;
+      game.overdriveKills = 0;
+      setBanner('OVERDRIVE!', '15連続キル！ 速度・火力ブースト', '#ffd23f');
+      shake(8);
+    }
+    // 吸血アップグレード：キルごとにHP回復
+    if (p2.vampire > 0) p2.hp = Math.min(p2.maxHp, p2.hp + p2.vampire);
+    // ヘルスオーブ：2.5%の確率でドロップ
+    if (Math.random() < 0.025) {
+      game.healthOrbs.push({ x: e.x, y: e.y, r: 7, value: 15, vx: rand(-24, 24), vy: rand(-24, 24) });
+    }
+  }
+
   // ラスボス撃破 → 勝利 or エンドレス周回
   if (e.boss) onBossDefeated();
 }
@@ -738,8 +780,8 @@ function gainXP(amount) {
   while (p.xp >= p.xpNext) {
     p.xp -= p.xpNext;
     p.level++;
-    // 緩やかなカーブ：序盤サクサク、後半も上がり続ける
-    p.xpNext = Math.round(5 + p.level * 3.5 + p.level * p.level * 0.24);
+    // 序盤は少し遊べる速度に、後半はガクっと重くなるカーブ
+    p.xpNext = Math.round(10 + p.level * 7 + p.level * p.level * 0.7);
     rollChoices();
     pointer.down = false; // レベルアップ突入時も移動入力をリセット
     state = 'levelup';
@@ -764,6 +806,10 @@ function update(dt) {
       g.wave = wi;
       setBanner('WAVE ' + (wi + 1), WAVES[wi].name, WAVES[wi].accent);
       shake(6);
+      // ウェーブ切り替え時に少し回復（新しいウェーブへの景気づけ）
+      const heal = 20;
+      p.hp = Math.min(p.maxHp, p.hp + heal);
+      floatText(p.x, p.y - 30, '+' + heal + ' HP', '#8affc1', 22);
     }
   }
 
@@ -771,6 +817,15 @@ function update(dt) {
   if (g.comboTimer > 0) { g.comboTimer -= dt; if (g.comboTimer <= 0) g.combo = 0; }
   // バナーの寿命
   if (g.banner) { g.banner.life -= dt; if (g.banner.life <= 0) g.banner = null; }
+
+  // オーバードライブのタイマー管理
+  if (g.overdrive) {
+    g.overdriveLife -= dt;
+    if (g.overdriveLife <= 0) { g.overdrive = false; g.overdriveKills = 0; }
+  } else {
+    if (g.overdriveTimer > 0) { g.overdriveTimer -= dt; if (g.overdriveTimer <= 0) g.overdriveKills = 0; }
+    if (g.overdriveCooldown > 0) g.overdriveCooldown -= dt;
+  }
 
   // --- プレイヤー移動 ---
   let mx = 0, my = 0;
@@ -803,10 +858,19 @@ function update(dt) {
   const ml = Math.hypot(mx, my);
   if (ml > 0.001) {
     mx /= ml; my /= ml;
-    p.x += mx * p.speed * moveScale * dt;
-    p.y += my * p.speed * moveScale * dt;
+    const odSpd = g.overdrive ? 1.45 : 1;
+    p.x += mx * p.speed * moveScale * odSpd * dt;
+    p.y += my * p.speed * moveScale * odSpd * dt;
     p.facing.x = mx; p.facing.y = my;
   }
+
+  // プレイヤートレイル（移動の軌跡を残す）
+  if (ml > 0.001) {
+    g.trail.push({ x: p.x, y: p.y, r: p.r * 0.55, life: 0.35 });
+    if (g.trail.length > 24) g.trail.shift();
+  }
+  for (const pt of g.trail) pt.life -= dt;
+  g.trail = g.trail.filter(pt => pt.life > 0);
 
   // 回復（被弾後しばらくは止まる）・無敵時間
   if (p.regenDelay > 0) p.regenDelay -= dt;
@@ -936,6 +1000,24 @@ function update(dt) {
     if (dd < (p.r + 10) * (p.r + 10)) { gem.dead = true; gainXP(gem.value); Sound.pick(); }
   }
 
+  // --- ヘルスオーブ（移動・吸引・回収） ---
+  for (const orb of g.healthOrbs) {
+    const dd = dist2(orb.x, orb.y, p.x, p.y);
+    if (dd < p.pickupRange * p.pickupRange) {
+      let dx2 = p.x - orb.x, dy2 = p.y - orb.y; const dl = Math.hypot(dx2, dy2) || 1;
+      orb.vx += (dx2 / dl) * 700 * dt; orb.vy += (dy2 / dl) * 700 * dt;
+    }
+    orb.x += orb.vx * dt; orb.y += orb.vy * dt;
+    orb.vx *= 0.88; orb.vy *= 0.88;
+    if (dd < (p.r + orb.r) * (p.r + orb.r)) {
+      orb.dead = true;
+      const gained = Math.min(orb.value, p.maxHp - p.hp);
+      p.hp = Math.min(p.maxHp, p.hp + orb.value);
+      if (gained > 0) floatText(p.x, p.y - 30, '+' + gained + ' HP', '#ff8ab3', 18);
+      Sound.pick();
+    }
+  }
+
   // --- パーティクル・浮き文字 ---
   for (const pt of g.particles) { pt.x += pt.vx * dt; pt.y += pt.vy * dt; pt.vx *= 0.92; pt.vy *= 0.92; pt.life -= dt; }
   for (const tx of g.texts) { tx.y += tx.vy * dt; tx.vy *= 0.92; tx.life -= dt; }
@@ -950,6 +1032,7 @@ function update(dt) {
   g.bolts = g.bolts.filter(z => z.life > 0);
   g.particles = g.particles.filter(x => x.life > 0);
   g.texts = g.texts.filter(x => x.life > 0);
+  g.healthOrbs = g.healthOrbs.filter(o => !o.dead && dist2(o.x, o.y, p.x, p.y) < 1100 * 1100);
 }
 
 // 敵の移動（種類ごとの動き方＋減速・凍結）
@@ -1208,7 +1291,7 @@ function updateBolt(dt) {
     const a = baseAng + off;
     game.bullets.push({
       x: p.x, y: p.y, vx: Math.cos(a) * w.speed, vy: Math.sin(a) * w.speed,
-      r: w.evolved ? 7 : 5, dmg: w.dmg * p.dmgMul, life: 1.1, pierce: w.pierce, kind: 'bolt',
+      r: w.evolved ? 7 : 5, dmg: w.dmg * p.dmgMul * (game.overdrive ? 1.3 : 1), life: 1.1, pierce: w.pierce, kind: 'bolt',
       color: w.evolved ? '#ffd23f' : '#ffe34d',
     });
   }
@@ -1230,7 +1313,7 @@ function updateOrbit(dt) {
       for (const e of game.enemies) {
         if (e.dead) continue;
         if (dist2(ox, oy, e.x, e.y) < (e.r + hitR) * (e.r + hitR)) {
-          damageEnemy(e, w.dmg * p.dmgMul, Math.cos(a) * 80, Math.sin(a) * 80, false);
+          damageEnemy(e, w.dmg * p.dmgMul * (game.overdrive ? 1.3 : 1), Math.cos(a) * 80, Math.sin(a) * 80, false);
           burst(ox, oy, '#9fe8ff', 3, 120);
         }
       }
@@ -1251,7 +1334,7 @@ function updateAura(dt) {
       const kb = w.evolved ? 60 : 0;
       let nx = 0, ny = 0;
       if (kb) { const dx = e.x - p.x, dy = e.y - p.y, d = Math.hypot(dx, dy) || 1; nx = dx / d * kb; ny = dy / d * kb; }
-      damageEnemy(e, w.dmg * p.dmgMul, nx, ny, false);
+      damageEnemy(e, w.dmg * p.dmgMul * (game.overdrive ? 1.3 : 1), nx, ny, false);
     }
   }
 }
@@ -1263,7 +1346,7 @@ function updateNova(dt) {
   if (w.cd > 0) return;
   w.cd = w.interval;
   game.shocks.push({ x: p.x, y: p.y, r: 18, vr: w.speed, life: w.radius / w.speed, maxR: w.radius,
-    dmg: w.dmg * p.dmgMul, color: w.evolved ? '#ff4be0' : '#b86bff', hitSet: new Set() });
+    dmg: w.dmg * p.dmgMul * (game.overdrive ? 1.3 : 1), color: w.evolved ? '#ff4be0' : '#b86bff', hitSet: new Set() });
   Sound.nova();
   if (w.evolved) shake(6);
 }
@@ -1279,7 +1362,7 @@ function updateThunder(dt) {
   const hit = new Set();
   let cur = first, fromX = p.x, fromY = p.y;
   for (let i = 0; i < w.chains && cur; i++) {
-    damageEnemy(cur, w.dmg * p.dmgMul, 0, 0, false);
+    damageEnemy(cur, w.dmg * p.dmgMul * (game.overdrive ? 1.3 : 1), 0, 0, false);
     hit.add(cur);
     game.bolts.push({ x1: fromX, y1: fromY, x2: cur.x, y2: cur.y, life: 0.18, max: 0.18, color: w.evolved ? '#c78bff' : '#cfe8ff' });
     burst(cur.x, cur.y, '#9fe8ff', 4, 140);
@@ -1304,7 +1387,7 @@ function updateFrost(dt) {
   for (const e of game.enemies) {
     if (e.dead || e.boss) continue; // ボスは凍らせない
     if (dist2(p.x, p.y, e.x, e.y) < (w.radius + e.r) * (w.radius + e.r)) {
-      damageEnemy(e, w.dmg * p.dmgMul, 0, 0, false);
+      damageEnemy(e, w.dmg * p.dmgMul * (game.overdrive ? 1.3 : 1), 0, 0, false);
       e.slowT = 0.7; e.slowF = w.slow;
       if (w.evolved && Math.random() < 0.05 && e.kind !== 'miniboss') e.freezeT = 0.9; // 進化：時々完全凍結
     }
@@ -1423,6 +1506,7 @@ function render() {
     drawShocks();
     drawGems();
     drawMines();
+    drawHealthOrbs();
     drawEnemies();
     drawEnemyBullets();
     drawBolts();
@@ -1439,7 +1523,14 @@ function render() {
     ctx.fillRect(0, 0, W, H);
   }
 
+  // 低HP危機ヴィネット・敵レーダー（HUDの下レイヤーに描画）
+  if (game && state === 'playing') {
+    drawDangerVignette();
+    drawEnemyRadar();
+  }
+
   if (game) { drawHUD(); drawBanner(); }
+  if (game && state === 'playing') drawOverdriveBar();
 
   if (state === 'title') drawTitle();
   else if (state === 'levelup') drawLevelUp();
@@ -1481,14 +1572,58 @@ function glowCircle(x, y, r, color, blur) {
   ctx.restore();
 }
 
+function drawHealthOrbs() {
+  for (const orb of game.healthOrbs) {
+    const s = worldToScreen(orb.x, orb.y);
+    // 脈動する緑のハート型代わりにクロス形状で表示
+    const t = performance.now() / 600;
+    const sc = 1 + 0.15 * Math.sin(t + orb.x);
+    ctx.save();
+    ctx.shadowColor = '#ff6aa0'; ctx.shadowBlur = 12;
+    ctx.fillStyle = '#ff8ab3';
+    ctx.beginPath(); ctx.arc(s.x, s.y, orb.r * sc, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold ' + Math.round(orb.r * 1.2) + 'px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('+', s.x, s.y + 1);
+    ctx.restore();
+  }
+}
+
+function drawTrail() {
+  const trail = game.trail;
+  if (!trail || trail.length < 2) return;
+  for (let i = 0; i < trail.length; i++) {
+    const pt = trail[i];
+    const s = worldToScreen(pt.x, pt.y);
+    const alpha = (pt.life / 0.35) * 0.5;
+    const color = game.overdrive ? `rgba(255,210,63,${alpha})` : `rgba(92,240,255,${alpha})`;
+    ctx.beginPath(); ctx.arc(s.x, s.y, pt.r, 0, TAU);
+    ctx.fillStyle = color; ctx.fill();
+  }
+}
+
 function drawPlayer() {
   const p = game.player;
+  drawTrail();
   const s = worldToScreen(p.x, p.y);
   if (p.invuln > 0 && Math.floor(p.invuln * 20) % 2 === 0) return;
-  glowCircle(s.x, s.y, p.r, '#5cf0ff', 22);
-  ctx.fillStyle = '#eaffff';
+  // オーバードライブ中はゴールドのオーラを追加
+  const glowColor = game.overdrive ? '#ffd23f' : '#5cf0ff';
+  const glowSize = game.overdrive ? 34 : 22;
+  glowCircle(s.x, s.y, p.r, glowColor, glowSize);
+  if (game.overdrive) {
+    // 外側にさらに大きいリング
+    ctx.save();
+    ctx.globalAlpha = 0.35;
+    ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 20;
+    ctx.strokeStyle = '#ffd23f'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(s.x, s.y, p.r + 6 + 3 * Math.sin(performance.now() / 120), 0, TAU); ctx.stroke();
+    ctx.restore();
+  }
+  ctx.fillStyle = game.overdrive ? '#fffbe0' : '#eaffff';
   ctx.beginPath(); ctx.arc(s.x, s.y, p.r * 0.5, 0, TAU); ctx.fill();
-  ctx.strokeStyle = '#bff7ff'; ctx.lineWidth = 3;
+  ctx.strokeStyle = game.overdrive ? '#ffd23f' : '#bff7ff'; ctx.lineWidth = 3;
   ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.lineTo(s.x + p.facing.x * (p.r + 8), s.y + p.facing.y * (p.r + 8)); ctx.stroke();
 }
 
@@ -1800,6 +1935,80 @@ function drawHUD() {
     ctx.textAlign = 'left'; ctx.fillStyle = '#7fffd0'; ctx.font = '11px monospace';
     ctx.fillText('E:' + game.enemies.length + ' B:' + game.bullets.length + ' EB:' + game.enemyBullets.length + ' M:' + game.mines.length + ' P:' + game.particles.length + ' upd:' + updMs.toFixed(2) + 'ms', 14, H - 14);
   }
+}
+
+// 低HP時の赤いヴィネット（画面端が赤く脈動する）
+function drawDangerVignette() {
+  if (!game) return;
+  const p = game.player;
+  const ratio = p.hp / p.maxHp;
+  if (ratio >= 0.35) return;
+  const t = performance.now() / 450;
+  const pulse = 0.55 + 0.35 * Math.sin(t);
+  const alpha = (1 - ratio / 0.35) * 0.55 * pulse;
+  const grad = ctx.createRadialGradient(W / 2, H / 2, H * 0.3, W / 2, H / 2, H * 0.85);
+  grad.addColorStop(0, 'rgba(200,0,0,0)');
+  grad.addColorStop(1, `rgba(200,0,0,${alpha.toFixed(3)})`);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+}
+
+// 画面外の敵の方向を画面端に小さな三角で示すレーダー
+function drawEnemyRadar() {
+  if (!game) return;
+  const p = game.player;
+  const margin = 22;
+  ctx.save();
+  ctx.globalAlpha = 0.7;
+  for (const e of game.enemies) {
+    if (e.dead) continue;
+    const sx = worldToScreen(e.x, e.y);
+    if (sx.x >= 0 && sx.x <= W && sx.y >= 0 && sx.y <= H) continue; // 画面内は表示しない
+    const angle = Math.atan2(e.y - p.y, e.x - p.x);
+    // 画面端のクランプ位置を計算
+    const cx = clamp(W / 2 + Math.cos(angle) * (W / 2 - margin), margin, W - margin);
+    const cy = clamp(H / 2 + Math.sin(angle) * (H / 2 - margin), margin, H - margin);
+    ctx.save();
+    ctx.translate(cx, cy); ctx.rotate(angle);
+    ctx.fillStyle = e.boss ? '#ff4be0' : (e.kind === 'miniboss' ? '#ffd23f' : '#ff6b6b');
+    ctx.shadowColor = ctx.fillStyle; ctx.shadowBlur = 6;
+    ctx.beginPath(); ctx.moveTo(7, 0); ctx.lineTo(-5, -4); ctx.lineTo(-5, 4); ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+// オーバードライブのゲージを右下に表示
+function drawOverdriveBar() {
+  if (!game) return;
+  const g = game;
+  const bw = 120, bh = 8, bx = W - bw - 16, by = H - 32;
+  ctx.fillStyle = 'rgba(0,0,0,.4)'; ctx.fillRect(bx, by, bw, bh);
+  if (g.overdrive) {
+    // 発動中：残り時間を黄色で表示
+    const ratio = g.overdriveLife / 4.0;
+    ctx.fillStyle = '#ffd23f';
+    ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 12;
+    ctx.fillRect(bx, by, bw * ratio, bh);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#fffbe0'; ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'right';
+    ctx.fillText('OVERDRIVE', bx + bw, by - 3);
+  } else if (g.overdriveCooldown <= 0) {
+    // チャージ中：キル数を表示
+    const ratio = Math.min(g.overdriveKills / 15, 1);
+    ctx.fillStyle = ratio >= 1 ? '#ffd23f' : 'rgba(180,140,60,.8)';
+    ctx.fillRect(bx, by, bw * ratio, bh);
+    ctx.fillStyle = '#9fb6d8'; ctx.font = '10px sans-serif'; ctx.textAlign = 'right';
+    ctx.fillText('OD ' + g.overdriveKills + '/15', bx + bw, by - 3);
+  } else {
+    // クールダウン中
+    const ratio = 1 - g.overdriveCooldown / 14;
+    ctx.fillStyle = 'rgba(80,60,20,.8)';
+    ctx.fillRect(bx, by, bw * ratio, bh);
+    ctx.fillStyle = '#9fb6d8'; ctx.font = '10px sans-serif'; ctx.textAlign = 'right';
+    ctx.fillText('CD ' + Math.ceil(g.overdriveCooldown) + 's', bx + bw, by - 3);
+  }
+  ctx.strokeStyle = 'rgba(255,255,255,.25)'; ctx.lineWidth = 1; ctx.strokeRect(bx, by, bw, bh);
 }
 
 // スマホ用の操作UI（バーチャルスティック＋右下のボタン）を描く
