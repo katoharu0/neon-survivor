@@ -345,6 +345,8 @@ function newPlayer() {
     dodge: 0,              // 被弾を確率で完全回避（0〜0.30）
     xpMul: 1,              // XP獲得倍率
     vampire: 0,            // 敵キル時HP回復量（吸血アップグレード）
+    barrierActive: false,  // バリアアップグレードを取得済みか
+    barrierCharge: 0,      // バリアの充電量（20秒で1発分）
     dashCd: 0,             // ダッシュのクールダウン（3秒）
     dashing: 0,            // ダッシュ中の残り時間（0.18秒、この間無敵）
     facing: { x: 1, y: 0 },// 向き（移動方向）
@@ -399,6 +401,8 @@ function resetGame(mode) {
     hordeCd: 0,             // 群れスポーンのクールダウン
     // オーバードライブ（15連続キルで発動、速度・火力が一時ブースト）
     overdriveKills: 0, overdriveTimer: 0, overdrive: false, overdriveLife: 0, overdriveCooldown: 0,
+    screenFlash: null,   // 画面フラッシュ { color, life, max }
+    lastEliteBanner: 999, // エリート登場バナーの間隔管理
   };
   cam.x = 0; cam.y = 0; cam.shake = 0;
   // 開始バナー
@@ -643,6 +647,7 @@ function buildUpgradePool() {
   pool.push({ id: 'haste', name: '高速詠唱', desc: '全武器の発動が 8% 速くなる', icon: '⏩', apply: () => applyHaste(0.92) });
   pool.push({ id: 'thorns', name: 'スパイク装甲', desc: '接触した敵に反射ダメージ +16', icon: '🌵', apply: () => { p.thorns = (p.thorns || 0) + 16; } });
   if ((p.dodge || 0) < 0.30) pool.push({ id: 'dodge', name: '回避', desc: '被弾を 10% で完全回避（上限30%）', icon: '🌀', apply: () => { p.dodge = Math.min(0.30, (p.dodge || 0) + 0.10); } });
+  if (!p.barrierActive) pool.push({ id: 'barrier', name: 'バリア', desc: '20秒ごとに被弾を1回完全無効化するシールド', icon: '🔵', apply: () => { p.barrierActive = true; p.barrierCharge = 0; } });
   return pool;
 }
 
@@ -791,8 +796,10 @@ function killEnemy(e) {
     }
     // 吸血アップグレード：キルごとにHP回復
     if (p2.vampire > 0) p2.hp = Math.min(p2.maxHp, p2.hp + p2.vampire);
-    // ヘルスオーブ：2.5%の確率でドロップ
-    if (Math.random() < 0.025) {
+    // ヘルスオーブ：低HPほど出やすい（Cycle16）
+    const hpRatio = game.player.hp / game.player.maxHp;
+    const orbChance = 0.025 + Math.max(0, 0.5 - hpRatio) * 0.10;
+    if (Math.random() < orbChance) {
       game.healthOrbs.push({ x: e.x, y: e.y, r: 7, value: 15, vx: rand(-24, 24), vy: rand(-24, 24) });
     }
   }
@@ -833,6 +840,8 @@ function update(dt) {
       g.wave = wi;
       setBanner('WAVE ' + (wi + 1), WAVES[wi].name, WAVES[wi].accent);
       shake(6);
+      // ウェーブ切り替えフラッシュ（Cycle20）：アクセントカラーで画面を光らせる
+      g.screenFlash = { color: WAVES[wi].accent, life: 0.7, max: 0.7 };
       // ウェーブ切り替え時に少し回復（新しいウェーブへの景気づけ）
       const heal = 20;
       p.hp = Math.min(p.maxHp, p.hp + heal);
@@ -841,9 +850,18 @@ function update(dt) {
   }
 
   // コンボのクールダウン
-  if (g.comboTimer > 0) { g.comboTimer -= dt; if (g.comboTimer <= 0) g.combo = 0; }
+  if (g.comboTimer > 0) {
+    g.comboTimer -= dt;
+    if (g.comboTimer <= 0) {
+      // コンボ20以上で途切れたら赤フラッシュ（Cycle18）
+      if (g.combo >= 20) g.screenFlash = { color: '#ff4455', life: 0.4, max: 0.4 };
+      g.combo = 0;
+    }
+  }
   // バナーの寿命
   if (g.banner) { g.banner.life -= dt; if (g.banner.life <= 0) g.banner = null; }
+  // エリートバナーの間隔タイマー（Cycle19）
+  g.lastEliteBanner += dt;
 
   // オーバードライブのタイマー管理
   if (g.overdrive) {
@@ -892,9 +910,10 @@ function update(dt) {
   }
 
   // プレイヤートレイル（移動の軌跡を残す）
-  if (ml > 0.001) {
-    g.trail.push({ x: p.x, y: p.y, r: p.r * 0.55, life: 0.35 });
-    if (g.trail.length > 24) g.trail.shift();
+  if (ml > 0.001 || p.dashing > 0) {
+    const isDash = p.dashing > 0;
+    g.trail.push({ x: p.x, y: p.y, r: p.r * (isDash ? 0.85 : 0.55), life: isDash ? 0.22 : 0.35, dash: isDash });
+    if (g.trail.length > 30) g.trail.shift();
   }
   for (const pt of g.trail) pt.life -= dt;
   g.trail = g.trail.filter(pt => pt.life > 0);
@@ -912,6 +931,10 @@ function update(dt) {
   if (p.regenDelay > 0) p.regenDelay -= dt;
   if (p.regen > 0 && p.regenDelay <= 0 && p.hp < p.maxHp) p.hp = Math.min(p.maxHp, p.hp + p.regen * dt);
   if (p.invuln > 0) p.invuln -= dt;
+  // バリア充電（Cycle14）
+  if (p.barrierActive && p.barrierCharge < 20) {
+    p.barrierCharge = Math.min(20, p.barrierCharge + dt);
+  }
 
   // --- カメラ追従 ---
   cam.x += ((p.x - W / 2) - cam.x) * Math.min(1, dt * 8);
@@ -1033,7 +1056,11 @@ function update(dt) {
     }
     gem.x += gem.vx * dt; gem.y += gem.vy * dt;
     gem.vx *= 0.9; gem.vy *= 0.9;
-    if (dd < (p.r + 10) * (p.r + 10)) { gem.dead = true; gainXP(gem.value); Sound.pick(); }
+    if (dd < (p.r + 10) * (p.r + 10)) {
+      gem.dead = true; gainXP(gem.value); Sound.pick();
+      // 回収時に小さなスパーク（Cycle13）
+      burst(gem.x, gem.y, gem.big ? '#b6ffce' : '#6bff9e', gem.big ? 6 : 3, 70);
+    }
   }
 
   // --- ヘルスオーブ（移動・吸引・回収） ---
@@ -1147,7 +1174,16 @@ function updateSpawning(dt) {
     // wave3以降（time>270秒）は底上げして後半に確実にeliteが混じる
     const eliteBase = g.wave >= 3 ? 0.10 : 0;
     const eliteChance = clamp(eliteBase + (g.time - 150) / 700, 0, 0.40) * pressure;
-    spawnEnemy(kind, { elite: Math.random() < eliteChance });
+    const isElite = Math.random() < eliteChance;
+    spawnEnemy(kind, { elite: isElite });
+    // エリート登場バナー（Cycle19）：10秒に1回まで通知
+    if (isElite) {
+      if (g.lastEliteBanner > 10) {
+        setBanner('⚡ ELITE!', kind.toUpperCase() + ' が現れた', '#ffd23f');
+        g.screenFlash = { color: '#ffd23f', life: 0.3, max: 0.3 };
+        g.lastEliteBanner = 0;
+      }
+    }
     const extra = Math.floor(g.time / 95) + (g.mode === 'endless' ? 2 : 0);
     for (let i = 0; i < extra && g.enemies.length < cap; i++) {
       if (Math.random() < 0.5) spawnEnemy(pickSpawnKind(wave));
@@ -1182,6 +1218,8 @@ function updateSpawning(dt) {
     setBanner('MINI BOSS', names[bt] + 'の強敵', '#4be0ff');
     floatText(p.x, p.y - 40, 'MINI BOSS!', '#4be0ff', true);
     Sound.boss(); shake(10);
+    // 警告フラッシュ（Cycle15）
+    g.screenFlash = { color: '#4be0ff', life: 0.6, max: 0.6 };
   }
 
   // ラスボス（通常は規定時間で1回。エンドレスは一定間隔で再来）
@@ -1290,6 +1328,14 @@ function hurtPlayer(dmg) {
   if (p.dodge > 0 && Math.random() < p.dodge) {
     p.invuln = 0.35;
     floatText(p.x, p.y - 20, 'MISS', '#5cf0ff');
+    return;
+  }
+  // バリア：充電完了時は被弾1回を無効化（Cycle14）
+  if (p.barrierActive && p.barrierCharge >= 20) {
+    p.barrierCharge = 0;
+    p.invuln = 0.4;
+    floatText(p.x, p.y - 20, 'BLOCKED!', '#88aaff');
+    shake(4);
     return;
   }
   dmg = Math.max(1, Math.round(dmg * (1 - p.armor)));
@@ -1580,6 +1626,16 @@ function render() {
     ctx.fillStyle = 'rgba(255,50,50,' + ((game.player.invuln - 0.5) * 0.7) + ')';
     ctx.fillRect(0, 0, W, H);
   }
+  // 画面フラッシュ（ミニボス登場・ウェーブ切替など）
+  if (game && game.screenFlash) {
+    const sf = game.screenFlash;
+    ctx.globalAlpha = clamp(sf.life / sf.max, 0, 1) * 0.45;
+    ctx.fillStyle = sf.color;
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalAlpha = 1;
+    sf.life -= 1 / 60;
+    if (sf.life <= 0) game.screenFlash = null;
+  }
 
   // 低HP危機ヴィネット・敵レーダー（HUDの下レイヤーに描画）
   if (game && state === 'playing') {
@@ -1654,8 +1710,12 @@ function drawTrail() {
   for (let i = 0; i < trail.length; i++) {
     const pt = trail[i];
     const s = worldToScreen(pt.x, pt.y);
-    const alpha = (pt.life / 0.35) * 0.5;
-    const color = game.overdrive ? `rgba(255,210,63,${alpha})` : `rgba(92,240,255,${alpha})`;
+    const maxLife = pt.dash ? 0.22 : 0.35;
+    const alpha = (pt.life / maxLife) * (pt.dash ? 0.75 : 0.5);
+    let color;
+    if (pt.dash) color = `rgba(220,250,255,${alpha})`;
+    else if (game.overdrive) color = `rgba(255,210,63,${alpha})`;
+    else color = `rgba(92,240,255,${alpha})`;
     ctx.beginPath(); ctx.arc(s.x, s.y, pt.r, 0, TAU);
     ctx.fillStyle = color; ctx.fill();
   }
@@ -1683,6 +1743,20 @@ function drawPlayer() {
   ctx.beginPath(); ctx.arc(s.x, s.y, p.r * 0.5, 0, TAU); ctx.fill();
   ctx.strokeStyle = game.overdrive ? '#ffd23f' : '#bff7ff'; ctx.lineWidth = 3;
   ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.lineTo(s.x + p.facing.x * (p.r + 8), s.y + p.facing.y * (p.r + 8)); ctx.stroke();
+  // バリアのリング（Cycle14）：充電量に応じて光る
+  if (p.barrierActive) {
+    const ratio = p.barrierCharge / 20;
+    const full = ratio >= 1;
+    const t2 = performance.now() / 700;
+    const pulse = full ? (0.7 + 0.3 * Math.sin(t2)) : ratio * 0.55;
+    ctx.save();
+    ctx.strokeStyle = full ? '#88aaff' : 'rgba(100,140,255,0.4)';
+    ctx.shadowColor = '#88aaff'; ctx.shadowBlur = full ? 16 : 4;
+    ctx.lineWidth = full ? 2.5 : 1.5;
+    ctx.globalAlpha = pulse;
+    ctx.beginPath(); ctx.arc(s.x, s.y, p.r + 10, 0, TAU * ratio); ctx.stroke();
+    ctx.restore();
+  }
 }
 
 // grunt を猫に見せる：本体の円に耳・目・鼻を重ねる（col は被弾フラッシュ/凍結色を引き継ぐ）
@@ -2169,7 +2243,7 @@ function drawTitle() {
     ctx.fillText('WASD / 矢印キーで移動（攻撃は自動）。マウス長押しでも移動できます。', W / 2, H / 2 - 38);
     ctx.fillText('敵を倒してレベルアップ → 強化を選んで強くなろう。武器はレベルを上げると進化！', W / 2, H / 2 - 14);
     ctx.fillStyle = '#9fb6d8'; ctx.font = '13px sans-serif';
-    ctx.fillText('P：一時停止　Tab：ステータス確認', W / 2, H / 2 + 8);
+    ctx.fillText('P：一時停止　Tab：ステータス確認　Space：ダッシュ（3秒CD・無敵）', W / 2, H / 2 + 8);
   }
   ctx.fillStyle = '#ffd23f'; ctx.font = 'bold 15px sans-serif';
   ctx.fillText('★ 目標：9分耐えてラスボスを倒すとクリア → エンドレス解放', W / 2, H / 2 + 36);
