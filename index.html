@@ -632,7 +632,8 @@ function buildUpgradePool() {
   if (p.regen < 6) pool.push({ id: 'regen', name: '再生', desc: '毎秒HP +0.9 回復（上限あり）', icon: '✚', apply: () => { p.regen = Math.min(6, p.regen + 0.9); } });
   if (p.critChance < 0.5) pool.push({ id: 'crit', name: '会心', desc: '会心率 +8%（2.2倍ダメージ）', icon: '🎯', apply: () => { p.critChance += 0.08; } });
   if (p.armor < 0.45) pool.push({ id: 'armor', name: '装甲', desc: '被ダメージ -9%（上限45%）', icon: '🛡', apply: () => { p.armor = Math.min(0.45, p.armor + 0.09); } });
-  pool.push({ id: 'greed', name: '強欲', desc: 'XP獲得量 +25%', icon: '💎', apply: () => { p.xpMul *= 1.25; } });
+  // 1回だけ取れる（15%上乗せ後は候補に出なくなる）
+  if (p.xpMul < 1.14) pool.push({ id: 'greed', name: '強欲', desc: 'XP獲得量 +15%（1回限り）', icon: '💎', apply: () => { p.xpMul = Math.min(1.15, p.xpMul + 0.15); } });
   if (p.vampire < 12) pool.push({ id: 'vampire', name: '吸血', desc: 'キルごとに HP +3 回復（最大4回取得）', icon: '🩸', apply: () => { p.vampire = Math.min(12, p.vampire + 3); } });
   // ---- 追加パッシブ（種類を増やして組み立ての幅を出す） ----
   pool.push({ id: 'haste', name: '高速詠唱', desc: '全武器の発動が 8% 速くなる', icon: '⏩', apply: () => applyHaste(0.92) });
@@ -1121,7 +1122,9 @@ function updateSpawning(dt) {
     const types = ['spreader', 'charger', 'summoner', 'blinker'];
     const bt = types[g.miniBossCount % types.length];
     const names = { spreader: '弾幕型', charger: '突進型', summoner: '召喚型', blinker: '瞬移型' };
-    spawnEnemy('miniboss', { bossType: bt });
+    const mb = spawnEnemy('miniboss', { bossType: bt });
+    // プレイヤーレベルで補正（火力インフレに対抗）
+    if (mb) { const mbLvScale = 1 + Math.max(0, p.level - 6) * 0.08; mb.hp = Math.round(mb.hp * mbLvScale); mb.maxHp = mb.hp; }
     g.miniBossCount++;
     g.miniBossAt += WAVE_LEN;
     setBanner('MINI BOSS', names[bt] + 'の強敵', '#4be0ff');
@@ -1141,7 +1144,9 @@ function spawnFinalBoss() {
   const g = game, p = g.player;
   g.finalBossSpawned = true;
   const ang = Math.random() * TAU, rad = 460;
-  const hpBase = 3900 * (1 + g.endlessLoops * 0.8);
+  // プレイヤーのレベルが高いほどボスも強くなる（火力インフレ対策）
+  const lvScale = 1 + Math.max(0, p.level - 8) * 0.09;
+  const hpBase = 3900 * (1 + g.endlessLoops * 0.8) * lvScale;
   const e = {
     kind: 'boss', boss: true, bossType: 'overlord',
     x: p.x + Math.cos(ang) * rad, y: p.y + Math.sin(ang) * rad,
