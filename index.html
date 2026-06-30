@@ -138,6 +138,13 @@ const clamp = (v, a, b) => v < a ? a : (v > b ? b : v);
 const dist2 = (ax, ay, bx, by) => { const dx = ax - bx, dy = ay - by; return dx * dx + dy * dy; };
 const TAU = Math.PI * 2;
 const lerp = (a, b, t) => a + (b - a) * t;
+// 背景の星（固定位置・フレームごとに再生成しない）
+const BG_STARS = Array.from({ length: 55 }, (_, i) => ({
+  x: (i * 173.1 + (i * i) * 7.3) % W,
+  y: (i * 211.7 + i * 13.1) % H,
+  s: 0.5 + (i % 4) * 0.35,
+  p: i * 0.73,
+}));
 
 // =========================================================================
 //  ステージ進行の定数
@@ -211,6 +218,10 @@ const Sound = (() => {
     win:   () => { [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => blip(f, 0.22, 'square', 0.16), i * 150)); },
     pick:  () => blip(880, 0.04, 'sine', 0.04, 1200),
     pause: () => blip(330, 0.08, 'sine', 0.08, 220),
+    // コンボマイルストーン達成時の2音上昇チャイム
+    comboMile: () => { blip(660, 0.07, 'square', 0.10); setTimeout(() => blip(990, 0.12, 'square', 0.13), 70); },
+    // オーバードライブ発動時の電撃ジングル
+    overdrive: () => { blip(220, 0.04, 'sawtooth', 0.12, 880); setTimeout(() => blip(440, 0.04, 'sawtooth', 0.14, 1100), 50); setTimeout(() => blip(880, 0.20, 'square', 0.18, 1320), 100); },
     toggle: () => { muted = !muted; return muted; },
     isMuted: () => muted,
     resume: ensure,
@@ -350,10 +361,13 @@ function newPlayer() {
     barrierCharge: 0,      // バリアの充電量（20秒で1発分）
     dashCd: 0,             // ダッシュのクールダウン（3秒）
     dashing: 0,            // ダッシュ中の残り時間（0.18秒、この間無敵）
+    rushTimer: 0,          // ラッシュ発動中の残り秒数
+    berserkLv: 0,          // バーサーク取得回数（HP低下時の火力ボーナス）
+    quickDash: false,      // フェイズダッシュ取得済みか（CD 3s→1.5s）
     facing: { x: 1, y: 0 },// 向き（移動方向）
     weapons: {
       // オートエイムの弾。最初から所持
-      bolt:    { lv: 1, evolved: false, cd: 0, interval: 0.55, dmg: 14, count: 1, speed: 440, pierce: 0, spread: 0.18 },
+      bolt:    { lv: 1, evolved: false, cd: 0, interval: 0.50, dmg: 14, count: 1, speed: 460, pierce: 0, spread: 0.18 },
       // 体の周りを回る光弾
       orbit:   { lv: 0, evolved: false, cd: 0, count: 2, dmg: 10, radius: 80, rotSpeed: 2.6, angle: 0 },
       // 周囲を焼く範囲ダメージ
@@ -650,6 +664,10 @@ function buildUpgradePool() {
   pool.push({ id: 'thorns', name: 'スパイク装甲', desc: '接触した敵に反射ダメージ +16', icon: '🌵', apply: () => { p.thorns = (p.thorns || 0) + 16; } });
   if ((p.dodge || 0) < 0.30) pool.push({ id: 'dodge', name: '回避', desc: '被弾を 10% で完全回避（上限30%）', icon: '🌀', apply: () => { p.dodge = Math.min(0.30, (p.dodge || 0) + 0.10); } });
   if (!p.barrierActive) pool.push({ id: 'barrier', name: 'バリア', desc: '20秒ごとに被弾を1回完全無効化するシールド', icon: '🔵', apply: () => { p.barrierActive = true; p.barrierCharge = 0; } });
+  // ---- 新パッシブ: バーサーク / ラッシュ / フェイズダッシュ ----
+  if (p.berserkLv < 2) pool.push({ id: 'berserk', name: 'バーサーク', desc: 'HP40%未満で全ダメージ+50%（2回で+100%）', icon: '🔥', apply: () => { p.berserkLv++; floatText(p.x, p.y - 40, 'バーサーク！', '#ff5c00'); } });
+  if (!p.rushUpgrade) pool.push({ id: 'rush', name: 'ラッシュ', desc: 'キルごとに1.5秒間 移動速度+30%', icon: '💨', apply: () => { p.rushUpgrade = true; } });
+  if (!p.quickDash) pool.push({ id: 'quickdash', name: 'フェイズダッシュ', desc: 'ダッシュのCDが 3秒→1.5秒に短縮', icon: '⚡', apply: () => { p.quickDash = true; floatText(p.x, p.y - 40, 'フェイズ解放！', '#4be0ff'); } });
   return pool;
 }
 
@@ -742,13 +760,18 @@ function explode(x, y, radius, dmg, color) {
 // showNum: ダメージ数字を出すか（弾は出す／範囲攻撃は出さない＝画面が騒がしくならない）
 function damageEnemy(e, dmg, kbx, kby, showNum) {
   if (e.dead) return;
+  const p = game.player;
   let crit = false;
-  const cc = game.player.critChance;
+  const cc = p.critChance;
   if (cc > 0 && Math.random() < cc) { dmg *= 2.2; crit = true; }
+  // バーサーク：HP40%未満のとき火力ボーナス
+  if (p.berserkLv > 0 && p.hp / p.maxHp < 0.4) dmg *= (1 + 0.5 * p.berserkLv);
   e.hp -= dmg;
   e.hitFlash = 0.08;
-  if (crit) floatText(e.x, e.y - e.r - 6, '★' + Math.round(dmg), '#ffd23f', true);
-  else if (showNum) floatText(e.x, e.y - e.r, '' + Math.round(dmg), '#fff');
+  if (crit) {
+    floatText(e.x, e.y - e.r - 6, '★CRIT! ' + Math.round(dmg), '#ffd23f', true);
+    burst(e.x, e.y, '#ffd23f', 6, 100); // 会心命中でゴールドの粒子
+  } else if (showNum) floatText(e.x, e.y - e.r, '' + Math.round(dmg), '#fff');
   if (kbx !== undefined && !e.boss) { e.knock.x += kbx; e.knock.y += kby; }
   if (e.hp <= 0) killEnemy(e);
 }
@@ -760,6 +783,15 @@ function killEnemy(e) {
   // コンボ加算（爽快感の演出）
   game.combo++; game.comboTimer = 2.2;
   if (game.combo > game.maxCombo) game.maxCombo = game.combo;
+  // コンボマイルストーン演出（10/30/50 で特別テキスト＋音）
+  if (game.combo === 10 || game.combo === 30 || game.combo === 50) {
+    const milCol = game.combo >= 50 ? '#ff4be0' : (game.combo >= 30 ? '#ffb24b' : '#ffd23f');
+    floatText(game.player.x, game.player.y - 65, game.combo + ' COMBO!!', milCol, true);
+    Sound.comboMile();
+    if (game.combo >= 30) shake(8);
+  }
+  // ラッシュ：キルごとに速度ブーストタイマーをリフレッシュ
+  if (game.player.rushUpgrade) game.player.rushTimer = 1.5;
 
   const isBig = e.kind === 'miniboss' || e.boss;
   burst(e.x, e.y, e.color, isBig ? 46 : (e.elite ? 22 : 12), isBig ? 340 : 190);
@@ -794,6 +826,7 @@ function killEnemy(e) {
       game.overdrive = true; game.overdriveLife = 4.0; game.overdriveCooldown = 14;
       game.overdriveKills = 0;
       setBanner('OVERDRIVE!', '15連続キル！ 速度・火力ブースト', '#ffd23f');
+      Sound.overdrive();
       shake(8);
     }
     // 吸血アップグレード：キルごとにHP回復
@@ -909,12 +942,15 @@ function update(dt) {
     mx += ax * 2.0 + gx * 1.1 - p.x * 0.0006;
     my += ay * 2.0 + gy * 1.1 - p.y * 0.0006;
   }
+  // ラッシュタイマーの減算
+  if (p.rushTimer > 0) p.rushTimer -= dt;
   const ml = Math.hypot(mx, my);
   if (ml > 0.001) {
     mx /= ml; my /= ml;
     const odSpd = g.overdrive ? 1.45 : 1;
-    p.x += mx * p.speed * moveScale * odSpd * dt;
-    p.y += my * p.speed * moveScale * odSpd * dt;
+    const rushSpd = p.rushTimer > 0 ? 1.30 : 1; // ラッシュ中は30%加速
+    p.x += mx * p.speed * moveScale * odSpd * rushSpd * dt;
+    p.y += my * p.speed * moveScale * odSpd * rushSpd * dt;
     p.facing.x = mx; p.facing.y = my;
   }
 
@@ -1320,10 +1356,23 @@ function updateBossBehavior(e, dt, dx, dy, d) {
   e.atkCd = (e.atkCd || 0) - dt;
   const bt = e.bossType;
   if (bt === 'spreader') {
-    if (e.atkCd <= 0 && d < 620) { enemyRing(e, 14, 195, 13, '#4be0ff'); e.atkCd = 2.4; }
+    if (e.atkCd <= 0 && d < 620) { enemyRing(e, 12, 205, 13, '#4be0ff'); e.atkCd = 2.6; }
   } else if (bt === 'charger') {
-    if (e.chargeT > 0) { e.chargeT -= dt; e.x += e.cvx * dt; e.y += e.cvy * dt; }
-    else if (e.atkCd <= 0 && d < 560) { e.chargeT = 0.55; const sp = 470; e.cvx = dx * sp; e.cvy = dy * sp; e.atkCd = 2.2; floatText(e.x, e.y - e.r, '突進!', '#ff6b6b'); }
+    // 予兆フェーズ：ダッシュ前に0.4秒間赤くフラッシュして警告
+    if (e.chargeWarn > 0) {
+      e.chargeWarn -= dt;
+      e.hitFlash = 0.06; // 赤くする（hitFlashを流用）
+      if (e.chargeWarn <= 0) { // 予兆終了→実際のダッシュ開始
+        e.chargeT = 0.55; e.cvx = e._cwdx * 470; e.cvy = e._cwdy * 470;
+        burst(e.x, e.y, '#ff3030', 14, 180);
+      }
+    } else if (e.chargeT > 0) { e.chargeT -= dt; e.x += e.cvx * dt; e.y += e.cvy * dt; }
+    else if (e.atkCd <= 0 && d < 560) {
+      // 予兆開始（0.4秒後に実際にダッシュ）
+      e.chargeWarn = 0.4; e._cwdx = dx; e._cwdy = dy; e.atkCd = 2.2;
+      floatText(e.x, e.y - e.r, '⚠ 突進!', '#ff4444');
+      shake(4);
+    }
   } else if (bt === 'summoner') {
     if (e.atkCd <= 0) { for (let k = 0; k < 3; k++) spawnEnemy('swift', { x: e.x + rand(-30, 30), y: e.y + rand(-30, 30) }); e.atkCd = 3.2; floatText(e.x, e.y - e.r, '召喚!', '#c78bff'); }
   } else if (bt === 'blinker') {
@@ -1383,8 +1432,9 @@ function updateBossBehavior(e, dt, dx, dy, d) {
 }
 
 function fireEnemyShot(e, dx, dy) {
-  // spitterは単発の弾（赤くして大きくし、はっきり見えるように）
-  game.enemyBullets.push({ x: e.x, y: e.y, vx: dx * 205, vy: dy * 205, r: 8, dmg: e.dmg, life: 4, color: '#ff2d5e' });
+  // 敵種別で弾色を変える（spitter=赤、orbiter=紫）
+  const col = e.kind === 'orbiter' ? '#a04bff' : '#ff2d5e';
+  game.enemyBullets.push({ x: e.x, y: e.y, vx: dx * 205, vy: dy * 205, r: 8, dmg: e.dmg, life: 4, color: col });
 }
 
 function hurtPlayer(dmg) {
@@ -1600,7 +1650,13 @@ function winGame() {
 }
 
 function computeScore() {
-  return Math.floor(game.time * 10 + game.kills * 12 + game.maxCombo * 8 + game.endlessLoops * 3000);
+  const p = game.player;
+  // キル × レベル係数（高レベルほど1キルが重い）
+  const killScore = game.kills * 12 * (1 + Math.log(Math.max(1, p.level)) / 3);
+  // コンボボーナス（最大コンボが高いほど大きい）
+  const comboBonus = game.maxCombo * 10 + (game.maxCombo >= 30 ? 1500 : 0);
+  const loopBonus = game.endlessLoops * 3000;
+  return Math.floor(game.time * 10 + killScore + comboBonus + loopBonus);
 }
 
 // クリア時のキャラ状態を保存（タイトルからエンドレスを始めるとき復元する）
@@ -1741,6 +1797,16 @@ function drawBackground() {
   for (let x = ox; x <= W; x += grid) { ctx.moveTo(x, 0); ctx.lineTo(x, H); }
   for (let y = oy; y <= H; y += grid) { ctx.moveTo(0, y); ctx.lineTo(W, y); }
   ctx.stroke();
+  // 背景に浮かぶ星（時間でゆっくりキラキラ）
+  const t2 = performance.now() / 1000;
+  ctx.save();
+  for (const st of BG_STARS) {
+    const alpha = 0.12 + 0.20 * Math.abs(Math.sin(t2 * 0.7 + st.p));
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = theme.accent;
+    ctx.beginPath(); ctx.arc(st.x, st.y, st.s, 0, TAU); ctx.fill();
+  }
+  ctx.restore();
 }
 
 function glowCircle(x, y, r, color, blur) {
@@ -2214,6 +2280,16 @@ function drawHUD() {
   ctx.fillStyle = theme.accent; ctx.font = 'bold 12px sans-serif';
   const label = game.mode === 'endless' ? ('ENDLESS  LOOP ' + (game.endlessLoops + 1)) : ('WAVE ' + (game.wave + 1) + '  ' + theme.name);
   ctx.fillText(label, W - 16, 66);
+  // ミニボス出現30秒前から警告カウントダウン（HUD右上）
+  if (game.mode === 'normal' && !game.finalBossSpawned) {
+    const toNext = game.miniBossAt - game.time;
+    const bossAlive = game.enemies.some(e => !e.dead && (e.kind === 'miniboss' || e.boss));
+    if (!bossAlive && toNext > 0 && toNext < 30) {
+      ctx.fillStyle = toNext < 10 ? '#ff5c7a' : '#ffb24b';
+      ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'right';
+      ctx.fillText('⚠ ボス まで ' + Math.ceil(toNext) + 's', W - 16, 82);
+    }
+  }
 
   if (game.mode === 'normal') {
     const bw = 300, bx = (W - bw) / 2, by = 14;
@@ -2234,6 +2310,16 @@ function drawHUD() {
     ctx.fillText(game.combo + ' COMBO', W / 2, 92);
   }
 
+  // ラッシュブーストインジケーター（ラッシュ発動中）
+  if (p.rushTimer > 0) {
+    ctx.fillStyle = '#4be0ff'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'left';
+    ctx.fillText('💨 RUSH  ' + p.rushTimer.toFixed(1) + 's', 14, 80);
+  }
+  // バーサーク状態インジケーター
+  if (p.berserkLv > 0 && p.hp / p.maxHp < 0.4) {
+    ctx.fillStyle = '#ff5c00'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'left';
+    ctx.fillText('🔥 BERSERK', 14, p.rushTimer > 0 ? 95 : 80);
+  }
   // XPブーストインジケーター（強欲の輝き発動中）
   if (game.xpBoostTimer > 0) {
     const pct = Math.min(1, game.xpBoostTimer / 30);
@@ -2259,6 +2345,12 @@ function drawHUD() {
     ctx.fillRect(bx2, by2, bw * ratio, bh);
     ctx.shadowBlur = 0;
     ctx.strokeStyle = 'rgba(255,255,255,.3)'; ctx.lineWidth = 1; ctx.strokeRect(bx2, by2, bw, bh);
+    // HPバー上に 75% / 50% / 25% のチェックポイント縦線
+    for (const cpPct of [0.75, 0.5, 0.25]) {
+      const cpX = bx2 + bw * cpPct;
+      ctx.fillStyle = 'rgba(255,255,255,0.45)';
+      ctx.fillRect(cpX - 1, by2 - 1, 2, bh + 2);
+    }
     ctx.fillStyle = '#fff'; ctx.font = 'bold 12px sans-serif'; ctx.textAlign = 'center';
     const bossLabel = activeBoss.boss ? 'FINAL BOSS' : ('MINI BOSS [' + (activeBoss.bossType || '') + ']');
     ctx.fillText(bossLabel + '  ' + Math.ceil(activeBoss.hp) + ' / ' + Math.round(activeBoss.maxHp), W / 2, by2 - 6);
@@ -2690,10 +2782,10 @@ function handleMenuKey(k) {
     if (k === 'r' || k === ' ' || k === 'enter') startGame('normal');
     else if (k === 'e') continueAsEndless();
   } else if (state === 'playing') {
-    // Spaceでダッシュ（3秒CD、Cycle9）
+    // Spaceでダッシュ（フェイズダッシュ取得で3s→1.5s）
     if (k === ' ' && game && game.player && game.player.dashCd <= 0) {
       game.player.dashing = 0.18;
-      game.player.dashCd = 3;
+      game.player.dashCd = game.player.quickDash ? 1.5 : 3;
     }
     else if (k === 'r') rerollChoices(); // 引き直しキー（levelup以外では無効）
   } else if (state === 'levelup') {
