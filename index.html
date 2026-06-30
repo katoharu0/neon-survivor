@@ -222,6 +222,12 @@ const Sound = (() => {
     comboMile: () => { blip(660, 0.07, 'square', 0.10); setTimeout(() => blip(990, 0.12, 'square', 0.13), 70); },
     // オーバードライブ発動時の電撃ジングル
     overdrive: () => { blip(220, 0.04, 'sawtooth', 0.12, 880); setTimeout(() => blip(440, 0.04, 'sawtooth', 0.14, 1100), 50); setTimeout(() => blip(880, 0.20, 'square', 0.18, 1320), 100); },
+    // ウェーブ切り替え時の上昇チャイム
+    waveUp: () => { blip(440, 0.06, 'square', 0.10, 660); setTimeout(() => blip(660, 0.06, 'square', 0.12, 880), 80); setTimeout(() => blip(880, 0.14, 'sine', 0.14), 165); },
+    // HPオーブ回収時（XPジェムより柔らかく温かい音）
+    orbHeal: () => { blip(660, 0.08, 'sine', 0.07, 990); setTimeout(() => blip(880, 0.06, 'sine', 0.06), 60); },
+    // 蘇生発動時の重い鼓動音
+    revive: () => { blip(110, 0.18, 'sawtooth', 0.18, 60); setTimeout(() => blip(220, 0.14, 'sine', 0.14, 440), 120); },
     toggle: () => { muted = !muted; return muted; },
     isMuted: () => muted,
     resume: ensure,
@@ -364,6 +370,9 @@ function newPlayer() {
     rushTimer: 0,          // ラッシュ発動中の残り秒数
     berserkLv: 0,          // バーサーク取得回数（HP低下時の火力ボーナス）
     quickDash: false,      // フェイズダッシュ取得済みか（CD 3s→1.5s）
+    adrenalineLv: 0,       // アドレナリン: 低HPほど移動速度ボーナス
+    deathDefyLv: 0,        // 死の免除: 1回だけ瀕死から蘇生
+    strikerLv: 0,          // ストライカー: ダッシュ中に敵にダメージ
     facing: { x: 1, y: 0 },// 向き（移動方向）
     weapons: {
       // オートエイムの弾。最初から所持
@@ -410,6 +419,7 @@ function resetGame(mode) {
     finalBossSpawned: false,
     bossRef: null,          // ラスボスへの参照（撃破判定用）
     banner: null,           // 画面中央に出す演出バナー {text, sub, life, color}
+    hordeArrow: null,       // ホード出現方向矢印 {angle, life}
     endlessLoops: 0,        // エンドレスで周回した回数（難易度上昇）
     choices: [],            // レベルアップ時の3択
     rerollsLeft: 1,         // レベルアップ時の引き直し残り回数
@@ -668,6 +678,12 @@ function buildUpgradePool() {
   if (p.berserkLv < 2) pool.push({ id: 'berserk', name: 'バーサーク', desc: 'HP40%未満で全ダメージ+50%（2回で+100%）', icon: '🔥', apply: () => { p.berserkLv++; floatText(p.x, p.y - 40, 'バーサーク！', '#ff5c00'); } });
   if (!p.rushUpgrade) pool.push({ id: 'rush', name: 'ラッシュ', desc: 'キルごとに1.5秒間 移動速度+30%', icon: '💨', apply: () => { p.rushUpgrade = true; } });
   if (!p.quickDash) pool.push({ id: 'quickdash', name: 'フェイズダッシュ', desc: 'ダッシュのCDが 3秒→1.5秒に短縮', icon: '⚡', apply: () => { p.quickDash = true; floatText(p.x, p.y - 40, 'フェイズ解放！', '#4be0ff'); } });
+  // アドレナリン: 低HPほど速度ボーナス（3段階、HP0で最大+45%）
+  if (p.adrenalineLv < 3) pool.push({ id: 'adrenaline', name: 'アドレナリン', desc: '低HPほど移動速度+（HP0で+15% × 段階数）', icon: '💉', apply: () => { p.adrenalineLv++; floatText(p.x, p.y - 40, 'アドレナリン！', '#ff6bbb'); } });
+  // 死の免除: 1回だけ致死ダメージを耐える
+  if (p.deathDefyLv < 1) pool.push({ id: 'deathdefy', name: '死の免除', desc: '一度だけHP1で致死ダメージを生き残る', icon: '⚰️', apply: () => { p.deathDefyLv = 1; floatText(p.x, p.y - 40, '死の免除！', '#ff4b4b'); } });
+  // ストライカー: ダッシュ中に接触した敵にダメージ
+  if (p.strikerLv < 2) pool.push({ id: 'striker', name: 'ストライカー', desc: 'ダッシュで敵に突撃するとダメージ（2段階）', icon: '🗡️', apply: () => { p.strikerLv++; floatText(p.x, p.y - 40, 'ストライカー！', '#ff8c00'); } });
   return pool;
 }
 
@@ -714,9 +730,10 @@ function applyChoice(idx) {
   c.apply();
   // レベルアップ後に画面内のXPジェムを全部自動吸引（Cycle4）
   for (const gem of game.gems) { gem.vx += (game.player.x - gem.x) * 4; gem.vy += (game.player.y - gem.y) * 4; }
-  game.rerollsLeft = 1; // 次のレベルアップのためにリセット
+  game.rerollsLeft = 1;
   pointer.down = false;
   state = 'playing';
+  floatText(game.player.x, game.player.y - 50, 'Lv ' + game.player.level, '#8affc1', true);
   if (c.isEvo) { Sound.evolve(); shake(10); setBanner('EVOLVED!', c.name, '#ffd23f'); }
   else Sound.pick();
 }
@@ -795,6 +812,12 @@ function killEnemy(e) {
 
   const isBig = e.kind === 'miniboss' || e.boss;
   burst(e.x, e.y, e.color, isBig ? 46 : (e.elite ? 22 : 12), isBig ? 340 : 190);
+  if (e.kind === 'miniboss') {
+    // ミニボス撃破演出
+    game.screenFlash = { color: e.color || '#4be0ff', life: 0.35, max: 0.35 };
+    setBanner('BOSS SLAIN!', 'ミニボスを撃破！', e.color || '#4be0ff');
+    shake(12);
+  }
 
   // 分裂する敵は小型を散らす
   if (e.splits && !e.elite) {
@@ -878,6 +901,7 @@ function update(dt) {
       shake(6);
       // ウェーブ切り替えフラッシュ（Cycle20）：アクセントカラーで画面を光らせる
       g.screenFlash = { color: WAVES[wi].accent, life: 0.7, max: 0.7 };
+      Sound.waveUp();
       // ウェーブ切り替え時に少し回復（新しいウェーブへの景気づけ）
       const heal = 20;
       p.hp = Math.min(p.maxHp, p.hp + heal);
@@ -895,8 +919,8 @@ function update(dt) {
   if (g.comboTimer > 0) {
     g.comboTimer -= dt;
     if (g.comboTimer <= 0) {
-      // コンボ20以上で途切れたら赤フラッシュ（Cycle18）
       if (g.combo >= 20) g.screenFlash = { color: '#ff4455', life: 0.4, max: 0.4 };
+      if (g.combo >= 5) floatText(g.player.x, g.player.y - 55, 'COMBO BREAK', '#ff9b3d');
       g.combo = 0;
     }
   }
@@ -948,9 +972,10 @@ function update(dt) {
   if (ml > 0.001) {
     mx /= ml; my /= ml;
     const odSpd = g.overdrive ? 1.45 : 1;
-    const rushSpd = p.rushTimer > 0 ? 1.30 : 1; // ラッシュ中は30%加速
-    p.x += mx * p.speed * moveScale * odSpd * rushSpd * dt;
-    p.y += my * p.speed * moveScale * odSpd * rushSpd * dt;
+    const rushSpd = p.rushTimer > 0 ? 1.30 : 1;
+    const adrSpd = p.adrenalineLv > 0 ? (1 + p.adrenalineLv * 0.15 * (1 - clamp(p.hp / p.maxHp, 0, 1))) : 1;
+    p.x += mx * p.speed * moveScale * odSpd * rushSpd * adrSpd * dt;
+    p.y += my * p.speed * moveScale * odSpd * rushSpd * adrSpd * dt;
     p.facing.x = mx; p.facing.y = my;
   }
 
@@ -968,7 +993,16 @@ function update(dt) {
     p.dashing -= dt;
     p.x += p.facing.x * p.speed * 3 * dt;
     p.y += p.facing.y * p.speed * 3 * dt;
-    p.invuln = Math.max(p.invuln, p.dashing); // ダッシュ中は無敵
+    p.invuln = Math.max(p.invuln, p.dashing);
+    // ストライカー: ダッシュ中に敵に接触するとダメージ
+    if (p.strikerLv > 0) {
+      for (const e of g.enemies) {
+        if (e.dead) continue;
+        if (dist2(p.x, p.y, e.x, e.y) < (p.r + e.r + 6) * (p.r + e.r + 6)) {
+          damageEnemy(e, 35 * p.strikerLv * p.dmgMul, p.facing.x * 350, p.facing.y * 350, true);
+        }
+      }
+    }
   }
   if (p.dashCd > 0) p.dashCd -= dt;
 
@@ -1109,9 +1143,10 @@ function update(dt) {
   }
 
   // --- ヘルスオーブ（移動・吸引・回収） ---
+  const orbPullRange = p.hp / p.maxHp < 0.30 ? p.pickupRange * 2.5 : p.pickupRange;
   for (const orb of g.healthOrbs) {
     const dd = dist2(orb.x, orb.y, p.x, p.y);
-    if (dd < p.pickupRange * p.pickupRange) {
+    if (dd < orbPullRange * orbPullRange) {
       let dx2 = p.x - orb.x, dy2 = p.y - orb.y; const dl = Math.hypot(dx2, dy2) || 1;
       orb.vx += (dx2 / dl) * 700 * dt; orb.vy += (dy2 / dl) * 700 * dt;
     }
@@ -1122,7 +1157,7 @@ function update(dt) {
       const gained = Math.min(orb.value, p.maxHp - p.hp);
       p.hp = Math.min(p.maxHp, p.hp + orb.value);
       if (gained > 0) floatText(p.x, p.y - 30, '+' + gained + ' HP', '#ff8ab3', 18);
-      Sound.pick();
+      Sound.orbHeal();
     }
   }
 
@@ -1249,6 +1284,7 @@ function updateSpawning(dt) {
     for (let i = 0; i < count; i++) {
       spawnEnemy(kind, { x: bx + rand(-40, 40), y: by + rand(-40, 40) });
     }
+    g.hordeArrow = { angle: ang, life: 4.0 };
     setBanner('HORDE!', kind.toUpperCase() + ' ×' + count, '#ff9b3d');
   }
   if (g.hordeCd > 0) g.hordeCd -= dt;
@@ -1328,6 +1364,10 @@ function spawnFinalBoss() {
 
 function onBossDefeated() {
   const g = game;
+  // 大爆発 + 白フラッシュ
+  burst(g.player.x, g.player.y, '#ffffff', 40, 400);
+  g.screenFlash = { color: '#ffffff', life: 0.5, max: 0.5 };
+  shake(16);
   if (g.mode === 'normal') {
     winGame();
   } else {
@@ -1335,6 +1375,7 @@ function onBossDefeated() {
     g.finalBossSpawned = false;
     g.bossRef = null;
     g.player.hp = Math.min(g.player.maxHp, g.player.hp + 60);
+    floatText(g.player.x, g.player.y - 60, 'LOOP ×' + (g.endlessLoops + 1), '#ffd23f', true);
     setBanner('LOOP ' + (g.endlessLoops + 1), 'さらに強敵が', '#ffd23f');
     g.miniBossAt = g.time + WAVE_LEN;
     g.nextEndlessBoss = g.time + 150;
@@ -1456,11 +1497,21 @@ function hurtPlayer(dmg) {
   dmg = Math.max(1, Math.round(dmg * (1 - p.armor)));
   p.hp -= dmg;
   p.invuln = 0.6;
-  p.regenDelay = 2.5; // 被弾後しばらく回復停止（粘りすぎ防止）
-  game.combo = 0; game.comboTimer = 0; // 被弾でコンボ途切れ
+  p.regenDelay = 2.5;
+  game.combo = 0; game.comboTimer = 0;
   shake(8); Sound.hurt();
   floatText(p.x, p.y - 20, '-' + dmg, '#ff6b6b');
-  if (p.hp <= 0) { if (GODMODE) { p.hp = p.maxHp; } else { p.hp = 0; gameOver(); } }
+  if (p.hp <= 0) {
+    if (GODMODE) { p.hp = p.maxHp; }
+    else if (p.deathDefyLv > 0) {
+      // 死の免除: 一度だけ致死ダメージを1HPで生き残る
+      p.deathDefyLv = 0; p.deathDefied = true; p.hp = 1; p.invuln = 2;
+      burst(p.x, p.y, '#ff4b4b', 30, 320);
+      setBanner('⚰ 死の免除発動！', '致死ダメージを耐えた！', '#ff4b4b');
+      floatText(p.x, p.y - 60, '⚰ SURVIVE!', '#ff4b4b', true);
+      Sound.revive();
+    } else { p.hp = 0; gameOver(); }
+  }
 }
 
 function nearestEnemy(x, y, exclude) {
@@ -1944,12 +1995,25 @@ function drawEnemies() {
     if (s.x < -70 || s.x > W + 70 || s.y < -70 || s.y > H + 70) continue;
     if (e.boss || e.kind === 'miniboss') { drawBoss(e, s); continue; }
     let col = e.hitFlash > 0 ? '#ffffff' : e.color;
-    if (e.freezeT > 0) col = '#bfe8ff';                                  // 凍結中は青白く
+    if (e.freezeT > 0) {
+      col = '#bfe8ff';
+      // 凍結エフェクト: 六角形の氷晶アウトライン
+      ctx.save();
+      ctx.strokeStyle = '#88ddff'; ctx.lineWidth = 1.5;
+      ctx.globalAlpha = 0.55 + 0.25 * Math.sin(performance.now() / 200);
+      ctx.beginPath();
+      for (let hi = 0; hi < 6; hi++) { const ha = hi * TAU / 6; const hx = s.x + Math.cos(ha) * (e.r * 1.45), hy = s.y + Math.sin(ha) * (e.r * 1.45); hi ? ctx.lineTo(hx, hy) : ctx.moveTo(hx, hy); }
+      ctx.closePath(); ctx.stroke();
+      ctx.restore();
+    }
     if (e.fuse >= 0 && Math.floor(e.fuse * 14) % 2 === 0) col = '#ffffff'; // 自爆導火で点滅
     if (e.elite) {
-      ctx.globalAlpha = 0.5; ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(s.x, s.y, e.r * 1.5, 0, TAU); ctx.stroke();
-      ctx.globalAlpha = 1;
+      const t3 = performance.now() / 600;
+      ctx.globalAlpha = 0.5 + 0.3 * Math.abs(Math.sin(t3));
+      ctx.strokeStyle = '#ffd23f'; ctx.lineWidth = 3;
+      ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 12;
+      ctx.beginPath(); ctx.arc(s.x, s.y, e.r * 1.55, 0, TAU); ctx.stroke();
+      ctx.shadowBlur = 0; ctx.globalAlpha = 1;
     }
     ctx.globalAlpha = 0.22; ctx.fillStyle = col;
     ctx.beginPath(); ctx.arc(s.x, s.y, e.r * 1.7, 0, TAU); ctx.fill();
@@ -2247,7 +2311,12 @@ function drawTexts() {
 function drawHUD() {
   const p = game.player;
   ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.fillRect(14, 14, 240, 16);
-  ctx.fillStyle = '#ff5c7a'; ctx.fillRect(14, 14, 240 * clamp(p.hp / p.maxHp, 0, 1), 16);
+  const hpPct = clamp(p.hp / p.maxHp, 0, 1);
+  const hpCol = hpPct > 0.50 ? '#ff5c7a' : (hpPct > 0.25 ? '#ff8c00' : '#ff2222');
+  ctx.fillStyle = hpCol;
+  if (hpPct <= 0.25) { ctx.shadowColor = '#ff2222'; ctx.shadowBlur = (Math.sin(Date.now() / 150) * 0.5 + 0.5) * 12; }
+  ctx.fillRect(14, 14, 240 * hpPct, 16);
+  ctx.shadowBlur = 0;
   ctx.strokeStyle = 'rgba(255,255,255,.4)'; ctx.lineWidth = 1; ctx.strokeRect(14, 14, 240, 16);
   ctx.fillStyle = '#fff'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'left';
   ctx.fillText('HP ' + Math.ceil(p.hp) + ' / ' + p.maxHp, 20, 26);
@@ -2304,11 +2373,26 @@ function drawHUD() {
 
   if (game.combo >= 5) {
     ctx.textAlign = 'center';
-    const big = game.combo >= 20;
-    ctx.fillStyle = big ? '#ffd23f' : '#cfe8ff';
-    ctx.font = 'bold ' + (big ? 26 : 20) + 'px sans-serif';
-    ctx.fillText(game.combo + ' COMBO', W / 2, 92);
+    const c = game.combo;
+    const comboSize = c >= 50 ? 34 : (c >= 20 ? 28 : 22);
+    const comboCol = c >= 50 ? '#ff4be0' : (c >= 20 ? '#ffd23f' : '#cfe8ff');
+    ctx.fillStyle = comboCol;
+    if (c >= 20) { ctx.shadowColor = comboCol; ctx.shadowBlur = 14; }
+    ctx.font = 'bold ' + comboSize + 'px sans-serif';
+    ctx.fillText(c + ' COMBO', W / 2, 92);
+    ctx.shadowBlur = 0;
   }
+
+  // ダッシュCDインジケーター（XPバー下の細いバー）
+  const dashMax = p.quickDash ? 1.5 : 3;
+  const dashReady = p.dashCd <= 0;
+  const dashRatio = dashReady ? 1 : clamp(1 - p.dashCd / dashMax, 0, 1);
+  ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillRect(14, 47, 100, 3);
+  ctx.fillStyle = dashReady ? '#4be0ff' : '#2a7090';
+  if (dashReady) { ctx.shadowColor = '#4be0ff'; ctx.shadowBlur = 6; }
+  ctx.fillRect(14, 47, 100 * dashRatio, 3);
+  ctx.shadowBlur = 0; ctx.font = '8px sans-serif'; ctx.fillStyle = dashReady ? '#4be0ff' : '#5588aa';
+  ctx.fillText(dashReady ? '⚡DASH' : '⚡' + Math.ceil(p.dashCd) + 's', 118, 50);
 
   // ラッシュブーストインジケーター（ラッシュ発動中）
   if (p.rushTimer > 0) {
@@ -2319,6 +2403,15 @@ function drawHUD() {
   if (p.berserkLv > 0 && p.hp / p.maxHp < 0.4) {
     ctx.fillStyle = '#ff5c00'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'left';
     ctx.fillText('🔥 BERSERK', 14, p.rushTimer > 0 ? 95 : 80);
+  }
+  // アドレナリン状態インジケーター（HP 50%以下で速度ボーナス中）
+  if (p.adrenalineLv > 0 && p.hp / p.maxHp < 0.5) {
+    const bonus = Math.round(p.adrenalineLv * 15 * (1 - clamp(p.hp / p.maxHp, 0, 1)));
+    ctx.fillStyle = '#ff6bbb'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'left';
+    let yy = 80;
+    if (p.rushTimer > 0) yy += 15;
+    if (p.berserkLv > 0 && p.hp / p.maxHp < 0.4) yy += 15;
+    ctx.fillText('💉 SPD+' + bonus + '%', 14, yy);
   }
   // XPブーストインジケーター（強欲の輝き発動中）
   if (game.xpBoostTimer > 0) {
@@ -2354,6 +2447,23 @@ function drawHUD() {
     ctx.fillStyle = '#fff'; ctx.font = 'bold 12px sans-serif'; ctx.textAlign = 'center';
     const bossLabel = activeBoss.boss ? 'FINAL BOSS' : ('MINI BOSS [' + (activeBoss.bossType || '') + ']');
     ctx.fillText(bossLabel + '  ' + Math.ceil(activeBoss.hp) + ' / ' + Math.round(activeBoss.maxHp), W / 2, by2 - 6);
+  }
+
+  // ホード出現方向矢印（画面端に向けて表示、4秒間）
+  if (game.hordeArrow && game.hordeArrow.life > 0) {
+    game.hordeArrow.life -= 1 / 60;
+    const ha = game.hordeArrow;
+    const alpha = clamp(ha.life / 1.5, 0, 1);
+    const cx2 = W / 2 + Math.cos(ha.angle) * (W * 0.38);
+    const cy2 = H / 2 + Math.sin(ha.angle) * (H * 0.36);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(cx2, cy2); ctx.rotate(ha.angle);
+    ctx.fillStyle = '#ff9b3d'; ctx.shadowColor = '#ff9b3d'; ctx.shadowBlur = 12;
+    ctx.beginPath(); ctx.moveTo(22, 0); ctx.lineTo(-10, -10); ctx.lineTo(-10, 10); ctx.closePath(); ctx.fill();
+    ctx.font = 'bold 9px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#fff';
+    ctx.shadowBlur = 0; ctx.fillText('HORDE', 0, 20);
+    ctx.restore();
   }
 
   // 操作ヒント（右下に小さく）。スマホはボタンを出すので文字ヒントは出さない
@@ -2722,19 +2832,32 @@ function drawResultStats() {
   if (game.newBest) { ctx.fillStyle = '#ffd23f'; ctx.font = 'bold 16px sans-serif'; ctx.fillText('★ NEW BEST! ★', W / 2, H / 2 + 76); }
   else { ctx.fillStyle = '#9fb6d8'; ctx.font = '14px sans-serif'; ctx.fillText('BEST ' + best, W / 2, H / 2 + 76); }
 
-  // 取得していた武器一覧（Cycle7）
+  // 取得していた武器一覧（進化済みは黄金で強調）
   const weapons = Object.keys(game.player.weapons).filter(k => game.player.weapons[k].lv > 0);
   if (weapons.length) {
-    ctx.font = '13px sans-serif'; ctx.fillStyle = '#9fb6d8';
-    ctx.fillText('使用した武器', W / 2, H / 2 + 100);
-    const iconW = 30, startX = W / 2 - (weapons.length * iconW) / 2 + iconW / 2;
-    ctx.font = '22px sans-serif';
+    ctx.font = '11px sans-serif'; ctx.fillStyle = '#9fb6d8';
+    ctx.fillText('使用武器', W / 2, H / 2 + 100);
+    const iconW = 36, startX = W / 2 - (weapons.length * iconW) / 2 + iconW / 2;
     for (let i = 0; i < weapons.length; i++) {
       const wp = game.player.weapons[weapons[i]];
-      ctx.fillStyle = wp.evolved ? '#ffd23f' : '#fff';
-      ctx.fillText(WEAPON_META[weapons[i]].icon, startX + i * iconW, H / 2 + 122);
+      const evoX = startX + i * iconW;
+      if (wp.evolved) {
+        ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 14;
+        ctx.fillStyle = '#ffd23f'; ctx.font = '9px sans-serif';
+        ctx.fillText('★EVO', evoX, H / 2 + 109);
+        ctx.shadowBlur = 0;
+      }
+      ctx.fillStyle = wp.evolved ? '#ffd23f' : '#fff'; ctx.font = '22px sans-serif';
+      ctx.fillText(WEAPON_META[weapons[i]].icon, evoX, H / 2 + 126);
     }
   }
+  // パッシブ特記（蘇生使用済み、アドレナリン発動など）
+  const p = game.player;
+  const notes = [];
+  if (p.berserkLv > 0) notes.push('🔥Berserk×' + p.berserkLv);
+  if (p.deathDefyLv === 0 && p.deathDefied) notes.push('⚰蘇生済');
+  if (p.strikerLv > 0) notes.push('🗡️Striker×' + p.strikerLv);
+  if (notes.length) { ctx.font = '11px sans-serif'; ctx.fillStyle = '#c8a0ff'; ctx.fillText(notes.join('  '), W / 2, H / 2 + 144); }
 }
 
 // ---- 描画ヘルパ ----
