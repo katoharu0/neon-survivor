@@ -348,7 +348,7 @@ const cam = { x: 0, y: 0, shake: 0 };
 // プレイヤーの初期状態。weapons の lv は取得レベル（0=未所持）、evolved は進化済みフラグ
 function newPlayer() {
   return {
-    x: 0, y: 0, r: 14,
+    x: 0, y: 0, r: 17,
     speed: 210,
     hp: 120, maxHp: 120,
     level: 1, xp: 0, xpNext: 14,
@@ -455,17 +455,17 @@ function enemyKinds(t) {
   const ds = (base) => Math.round(base * dmgScale);
   const ss = (base) => base * spdScale;
   return {
-    grunt:    { hp: 18 * hpScale,  speed: ss(68),  r: 12, dmg: ds(9),  xp: xs(1), color: '#ff5c8a', shape: 'circle', move: 'chase' },
-    swift:    { hp: 11 * hpScale,  speed: ss(142), r: 9,  dmg: ds(7),  xp: xs(1), color: '#ffd23f', shape: 'tri',    move: 'chase' },
-    tank:     { hp: 88 * hpScale,  speed: ss(46),  r: 21, dmg: ds(16), xp: xs(3), color: '#7c5cff', shape: 'hex',    move: 'chase' },
-    splitter: { hp: 34 * hpScale,  speed: ss(60),  r: 15, dmg: ds(10), xp: xs(2), color: '#6bffb0', shape: 'square', move: 'chase', splits: true },
-    spitter:  { hp: 28 * hpScale,  speed: ss(42),  r: 13, dmg: ds(10), xp: xs(2), color: '#ff9b3d', shape: 'circle', move: 'chase', ranged: true },
-    weaver:   { hp: 16 * hpScale,  speed: ss(100), r: 11, dmg: ds(8),  xp: xs(1), color: '#ff8af0', shape: 'circle', move: 'weave' },
-    dasher:   { hp: 30 * hpScale,  speed: ss(46),  r: 13, dmg: ds(13), xp: xs(2), color: '#41ffd5', shape: 'tri',    move: 'dash' },
-    bomber:   { hp: 26 * hpScale,  speed: ss(74),  r: 14, dmg: ds(22), xp: xs(2), color: '#ff7b3d', shape: 'square', move: 'bomb' },
-    orbiter:  { hp: 22 * hpScale,  speed: ss(120), r: 11, dmg: ds(9),  xp: xs(2), color: '#8a7bff', shape: 'tri',    move: 'orbit', ranged: true }, // 距離を保って旋回しながら撃つ
-    brute:    { hp: 150 * hpScale, speed: ss(40),  r: 24, dmg: ds(28), xp: xs(4), color: '#ff5c3d', shape: 'hex',    move: 'chase' },                // 鈍重だが一撃が重い
-    miniboss: { hp: 960 * hpScale, speed: ss(52),  r: 30, dmg: ds(24), xp: xs(28), color: '#4be0ff', shape: 'boss',  move: 'chase' },
+    grunt:    { hp: 22 * hpScale,  speed: ss(68),  r: 12, dmg: ds(11), xp: xs(1), color: '#ff5c8a', shape: 'circle', move: 'chase' },
+    swift:    { hp: 14 * hpScale,  speed: ss(142), r: 9,  dmg: ds(9),  xp: xs(1), color: '#ffd23f', shape: 'tri',    move: 'chase' },
+    tank:     { hp: 110 * hpScale, speed: ss(46),  r: 21, dmg: ds(20), xp: xs(3), color: '#7c5cff', shape: 'hex',    move: 'chase' },
+    splitter: { hp: 42 * hpScale,  speed: ss(60),  r: 15, dmg: ds(12), xp: xs(2), color: '#6bffb0', shape: 'square', move: 'chase', splits: true },
+    spitter:  { hp: 35 * hpScale,  speed: ss(42),  r: 13, dmg: ds(12), xp: xs(2), color: '#ff9b3d', shape: 'circle', move: 'chase', ranged: true },
+    weaver:   { hp: 20 * hpScale,  speed: ss(110), r: 11, dmg: ds(9),  xp: xs(1), color: '#ff8af0', shape: 'circle', move: 'weave' },
+    dasher:   { hp: 38 * hpScale,  speed: ss(46),  r: 13, dmg: ds(16), xp: xs(2), color: '#41ffd5', shape: 'tri',    move: 'dash' },
+    bomber:   { hp: 33 * hpScale,  speed: ss(74),  r: 14, dmg: ds(25), xp: xs(2), color: '#ff7b3d', shape: 'square', move: 'bomb' },
+    orbiter:  { hp: 27 * hpScale,  speed: ss(120), r: 11, dmg: ds(11), xp: xs(2), color: '#8a7bff', shape: 'tri',    move: 'orbit', ranged: true }, // 距離を保って旋回しながら撃つ
+    brute:    { hp: 180 * hpScale, speed: ss(40),  r: 24, dmg: ds(34), xp: xs(4), color: '#ff5c3d', shape: 'hex',    move: 'chase' },                // 鈍重だが一撃が重い
+    miniboss: { hp: 640 * hpScale, speed: ss(68),  r: 30, dmg: ds(24), xp: xs(28), color: '#4be0ff', shape: 'boss',  move: 'chase' },
   };
 }
 
@@ -1240,13 +1240,13 @@ function updateSpawning(dt) {
 
   // エンドレスは周回＋経過時間で敵が増える。通常は時間で増える
   const pressure = g.mode === 'endless' ? (1 + g.endlessLoops * 0.5 + g.time / 360) : 1;
-  const cap = Math.min(g.mode === 'endless' ? 180 : 140, 50 + Math.floor(g.time / 55) * 4);
+  const cap = Math.min(g.mode === 'endless' ? 135 : 105, 38 + Math.floor(g.time / 60) * 3);
 
   g.spawnTimer -= dt;
   const hasBoss = g.enemies.some(e => !e.dead && (e.boss || e.kind === 'miniboss'));
-  const baseInterval = Math.max(0.08, (1.05 - g.time * 0.014)) / pressure;
-  // ボス戦中はモブを大幅に絞る（ボスとの一騎打ち感を演出）
-  const interval = hasBoss ? Math.max(5.0, baseInterval * 8) : baseInterval;
+  const baseInterval = Math.max(0.11, (1.05 - g.time * 0.013)) / pressure;
+  // ボス戦中はモブを絞る（ボスが目立つように）
+  const interval = hasBoss ? Math.max(4.0, baseInterval * 6) : baseInterval;
   if (g.spawnTimer <= 0 && g.enemies.length < cap) {
     g.spawnTimer = interval;
     const wave = g.mode === 'endless' ? WAVES.length - 1 : g.wave;
@@ -1290,7 +1290,6 @@ function updateSpawning(dt) {
     const bt = types[g.miniBossCount % types.length];
     const names = { spreader: '弾幕型', charger: '突進型', summoner: '召喚型', blinker: '瞬移型' };
     const bossColors = { spreader: '#00d4ff', charger: '#ff4444', summoner: '#cc44ff', blinker: '#ffcc00' };
-    sweepMobsForBoss(); // モブを全員消してボスタイムにする
     const mb = spawnEnemy('miniboss', { bossType: bt });
     // プレイヤーレベルで補正（火力インフレに対抗）＋タイプ別カラー設定
     if (mb) {
@@ -1314,28 +1313,10 @@ function updateSpawning(dt) {
   }
 }
 
-// ボス出現時に通常モブを全消去してXPジェムを一部ドロップ（戦場リセット）
-function sweepMobsForBoss() {
-  const g = game;
-  let swept = 0;
-  for (const e of g.enemies) {
-    if (e.boss || e.kind === 'miniboss' || e.dead) continue;
-    burst(e.x, e.y, e.color, 5, 90);
-    e.dead = true;
-    swept++;
-  }
-  g.enemies = g.enemies.filter(e => !e.dead);
-  if (swept > 0) {
-    shake(16);
-    g.screenFlash = { color: '#ffffff', life: 0.45, max: 0.45 };
-    floatText(g.player.x, g.player.y - 60, '戦場クリア!', '#ffffff', true);
-  }
-}
 
 function spawnFinalBoss() {
   const g = game, p = g.player;
   g.finalBossSpawned = true;
-  sweepMobsForBoss(); // モブを全員消してボスタイムにする
   const ang = Math.random() * TAU, rad = 420;
   // プレイヤーのレベルが高いほどボスも強くなる（火力インフレ対策）
   const lvScale = 1 + Math.max(0, p.level - 8) * 0.09;
@@ -1344,7 +1325,7 @@ function spawnFinalBoss() {
     kind: 'boss', boss: true, bossType: 'overlord',
     x: p.x + Math.cos(ang) * rad, y: p.y + Math.sin(ang) * rad,
     hp: hpBase, maxHp: hpBase,
-    speed: 58, r: 48, dmg: 28, xp: 2000, color: '#ff4be0',
+    speed: 74, r: 48, dmg: 28, xp: 2000, color: '#ff4be0',
     shape: 'boss', move: 'chase', hitFlash: 0, fireTimer: 1.0, atkCd: 1.2, knock: { x: 0, y: 0 },
     slowT: 0, freezeT: 0, elite: false,
   };
@@ -1885,13 +1866,16 @@ function drawHealthOrbs() {
     const t = performance.now() / 600;
     const sc = 1 + 0.15 * Math.sin(t + orb.x);
     ctx.save();
-    ctx.shadowColor = '#ff6aa0'; ctx.shadowBlur = 12;
-    ctx.fillStyle = '#ff8ab3';
-    ctx.beginPath(); ctx.arc(s.x, s.y, orb.r * sc, 0, TAU); ctx.fill();
+    ctx.shadowColor = '#ff6aa0'; ctx.shadowBlur = 18;
+    ctx.fillStyle = '#ff7ab5';
+    const orbR = orb.r * 1.5 * sc;
+    ctx.beginPath(); ctx.arc(s.x, s.y, orbR, 0, TAU); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineWidth = 1.5;
+    ctx.stroke();
     ctx.fillStyle = '#fff';
-    ctx.font = 'bold ' + Math.round(orb.r * 1.2) + 'px sans-serif';
+    ctx.font = 'bold ' + Math.round(orbR * 1.4) + 'px sans-serif';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('+', s.x, s.y + 1);
+    ctx.fillText('♥', s.x, s.y + 1);
     ctx.restore();
   }
 }
@@ -1920,8 +1904,14 @@ function drawPlayer() {
   if (p.invuln > 0 && Math.floor(p.invuln * 20) % 2 === 0) return;
   // オーバードライブ中はゴールドのオーラを追加
   const glowColor = game.overdrive ? '#ffd23f' : '#5cf0ff';
-  const glowSize = game.overdrive ? 34 : 22;
+  const glowSize = game.overdrive ? 40 : 28;
   glowCircle(s.x, s.y, p.r, glowColor, glowSize);
+  // 外枠リング（プレイヤーを敵から判別しやすくする）
+  ctx.save();
+  ctx.strokeStyle = game.overdrive ? 'rgba(255,210,63,0.7)' : 'rgba(92,240,255,0.6)';
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(s.x, s.y, p.r + 4, 0, TAU); ctx.stroke();
+  ctx.restore();
   if (game.overdrive) {
     // 外側にさらに大きいリング
     ctx.save();
@@ -2226,7 +2216,15 @@ function drawMines() {
     const s = worldToScreen(m.x, m.y);
     const armed = m.arm <= 0;
     const blink = Math.floor(game.time * 6) % 2 === 0;
-    glowCircle(s.x, s.y, m.r * 0.6, armed ? (blink ? '#ffd23f' : '#ff7b3d') : '#888', 10);
+    const mr = m.r * 0.85;
+    glowCircle(s.x, s.y, mr, armed ? (blink ? '#ffd23f' : '#ff7b3d') : '#aaa', armed ? 16 : 6);
+    // ☢マーク（設置物と分かるように）
+    ctx.save();
+    ctx.fillStyle = armed ? (blink ? '#1a0e00' : '#2a1200') : '#333';
+    ctx.font = 'bold ' + Math.round(mr * 1.4) + 'px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('☢', s.x, s.y + 1);
+    ctx.restore();
   }
 }
 
@@ -2312,10 +2310,10 @@ function drawWeapons() {
 function drawGems() {
   for (const gem of game.gems) {
     const s = worldToScreen(gem.x, gem.y);
-    const r = gem.big ? 7 : 5;
+    const r = gem.big ? 11 : 8;
     const col = gem.big ? '#b6ffce' : '#6bff9e';
     ctx.save();
-    ctx.shadowColor = col; ctx.shadowBlur = 10;
+    ctx.shadowColor = col; ctx.shadowBlur = 14;
     ctx.fillStyle = col;
     // ダイヤモンド（45度回転した正方形）で経験値ジェムと分かる形に
     ctx.beginPath();
@@ -2324,8 +2322,11 @@ function drawGems() {
     ctx.lineTo(s.x, s.y + r);
     ctx.lineTo(s.x - r, s.y);
     ctx.closePath(); ctx.fill();
+    // 外枠（輪郭）
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineWidth = 1;
+    ctx.stroke();
     // 中心に白いハイライト
-    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    ctx.fillStyle = 'rgba(255,255,255,0.8)';
     ctx.beginPath(); ctx.arc(s.x - r * 0.2, s.y - r * 0.25, r * 0.28, 0, TAU); ctx.fill();
     ctx.restore();
   }
@@ -2356,53 +2357,53 @@ function drawTexts() {
 // ---- HUD（上部の情報表示） ----
 function drawHUD() {
   const p = game.player;
-  ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.fillRect(14, 14, 240, 16);
+  ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.fillRect(14, 14, 240, 22);
   const hpPct = clamp(p.hp / p.maxHp, 0, 1);
   const hpCol = hpPct > 0.50 ? '#ff5c7a' : (hpPct > 0.25 ? '#ff8c00' : '#ff2222');
   ctx.fillStyle = hpCol;
   if (hpPct <= 0.25) { ctx.shadowColor = '#ff2222'; ctx.shadowBlur = (Math.sin(Date.now() / 150) * 0.5 + 0.5) * 12; }
-  ctx.fillRect(14, 14, 240 * hpPct, 16);
+  ctx.fillRect(14, 14, 240 * hpPct, 22);
   ctx.shadowBlur = 0;
-  ctx.strokeStyle = 'rgba(255,255,255,.4)'; ctx.lineWidth = 1; ctx.strokeRect(14, 14, 240, 16);
-  ctx.fillStyle = '#fff'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'left';
-  ctx.fillText('HP ' + Math.ceil(p.hp) + ' / ' + p.maxHp, 20, 26);
+  ctx.strokeStyle = 'rgba(255,255,255,.4)'; ctx.lineWidth = 1; ctx.strokeRect(14, 14, 240, 22);
+  ctx.fillStyle = '#fff'; ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'left';
+  ctx.fillText('HP ' + Math.ceil(p.hp) + ' / ' + p.maxHp, 20, 30);
 
-  ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.fillRect(14, 34, 240, 10);
-  ctx.fillStyle = '#8affc1'; ctx.fillRect(14, 34, 240 * clamp(p.xp / p.xpNext, 0, 1), 10);
-  ctx.fillStyle = '#cfe8ff'; ctx.fillText('Lv ' + p.level, 260, 28);
+  ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.fillRect(14, 40, 240, 13);
+  ctx.fillStyle = '#8affc1'; ctx.fillRect(14, 40, 240 * clamp(p.xp / p.xpNext, 0, 1), 13);
+  ctx.fillStyle = '#cfe8ff'; ctx.fillText('Lv ' + p.level, 260, 34);
 
   // 取得済み武器アイコン（進化は★）
   let ix = 14;
   for (const key in p.weapons) {
     const wp = p.weapons[key];
     if (wp.lv > 0) {
-      ctx.font = '15px sans-serif'; ctx.globalAlpha = 1; ctx.fillStyle = '#cfe8ff';
-      ctx.fillText(WEAPON_META[key].icon, ix, 60);
-      if (wp.evolved) { ctx.fillStyle = '#ffd23f'; ctx.font = '9px sans-serif'; ctx.fillText('★', ix + 13, 52); }
-      ix += 26;
+      ctx.font = '19px sans-serif'; ctx.globalAlpha = 1; ctx.fillStyle = '#cfe8ff';
+      ctx.fillText(WEAPON_META[key].icon, ix, 70);
+      if (wp.evolved) { ctx.fillStyle = '#ffd23f'; ctx.font = '10px sans-serif'; ctx.fillText('★', ix + 15, 60); }
+      ix += 30;
     }
   }
 
-  ctx.textAlign = 'right'; ctx.font = 'bold 18px monospace'; ctx.fillStyle = '#eaffff';
+  ctx.textAlign = 'right'; ctx.font = 'bold 22px monospace'; ctx.fillStyle = '#eaffff';
   const tt = Math.floor(game.time);
   const mm = String(Math.floor(tt / 60)).padStart(2, '0');
   const ss = String(tt % 60).padStart(2, '0');
-  ctx.fillText(mm + ':' + ss, W - 16, 30);
-  ctx.font = 'bold 12px sans-serif'; ctx.fillStyle = '#9fb6d8';
-  ctx.fillText('KILLS ' + game.kills, W - 16, 48);
+  ctx.fillText(mm + ':' + ss, W - 16, 32);
+  ctx.font = 'bold 13px sans-serif'; ctx.fillStyle = '#9fb6d8';
+  ctx.fillText('KILLS ' + game.kills, W - 16, 52);
 
   const theme = curTheme();
-  ctx.fillStyle = theme.accent; ctx.font = 'bold 12px sans-serif';
+  ctx.fillStyle = theme.accent; ctx.font = 'bold 13px sans-serif';
   const label = game.mode === 'endless' ? ('ENDLESS  LOOP ' + (game.endlessLoops + 1)) : ('WAVE ' + (game.wave + 1) + '  ' + theme.name);
-  ctx.fillText(label, W - 16, 66);
+  ctx.fillText(label, W - 16, 70);
   // ミニボス出現30秒前から警告カウントダウン（HUD右上）
   if (game.mode === 'normal' && !game.finalBossSpawned) {
     const toNext = game.miniBossAt - game.time;
     const bossAlive = game.enemies.some(e => !e.dead && (e.kind === 'miniboss' || e.boss));
     if (!bossAlive && toNext > 0 && toNext < 30) {
       ctx.fillStyle = toNext < 10 ? '#ff5c7a' : '#ffb24b';
-      ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'right';
-      ctx.fillText('⚠ ボス まで ' + Math.ceil(toNext) + 's', W - 16, 82);
+      ctx.font = 'bold 14px sans-serif'; ctx.textAlign = 'right';
+      ctx.fillText('⚠ ボス まで ' + Math.ceil(toNext) + 's', W - 16, 90);
     }
   }
 
@@ -2433,42 +2434,42 @@ function drawHUD() {
   const dashMax = p.quickDash ? 1.5 : 3;
   const dashReady = p.dashCd <= 0;
   const dashRatio = dashReady ? 1 : clamp(1 - p.dashCd / dashMax, 0, 1);
-  ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillRect(14, 47, 100, 3);
+  ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillRect(14, 57, 100, 4);
   ctx.fillStyle = dashReady ? '#4be0ff' : '#2a7090';
   if (dashReady) { ctx.shadowColor = '#4be0ff'; ctx.shadowBlur = 6; }
-  ctx.fillRect(14, 47, 100 * dashRatio, 3);
-  ctx.shadowBlur = 0; ctx.font = '8px sans-serif'; ctx.fillStyle = dashReady ? '#4be0ff' : '#5588aa';
-  ctx.fillText(dashReady ? '⚡DASH' : '⚡' + Math.ceil(p.dashCd) + 's', 118, 50);
+  ctx.fillRect(14, 57, 100 * dashRatio, 4);
+  ctx.shadowBlur = 0; ctx.font = '10px sans-serif'; ctx.fillStyle = dashReady ? '#4be0ff' : '#5588aa';
+  ctx.fillText(dashReady ? '⚡DASH' : '⚡' + Math.ceil(p.dashCd) + 's', 122, 62);
 
   // ラッシュブーストインジケーター（ラッシュ発動中）
   if (p.rushTimer > 0) {
-    ctx.fillStyle = '#4be0ff'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'left';
-    ctx.fillText('💨 RUSH  ' + p.rushTimer.toFixed(1) + 's', 14, 80);
+    ctx.fillStyle = '#4be0ff'; ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'left';
+    ctx.fillText('💨 RUSH  ' + p.rushTimer.toFixed(1) + 's', 14, 92);
   }
   // バーサーク状態インジケーター
   if (p.berserkLv > 0 && p.hp / p.maxHp < 0.4) {
-    ctx.fillStyle = '#ff5c00'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'left';
-    ctx.fillText('🔥 BERSERK', 14, p.rushTimer > 0 ? 95 : 80);
+    ctx.fillStyle = '#ff5c00'; ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'left';
+    ctx.fillText('🔥 BERSERK', 14, p.rushTimer > 0 ? 108 : 92);
   }
   // アドレナリン状態インジケーター（HP 50%以下で速度ボーナス中）
   if (p.adrenalineLv > 0 && p.hp / p.maxHp < 0.5) {
     const bonus = Math.round(p.adrenalineLv * 15 * (1 - clamp(p.hp / p.maxHp, 0, 1)));
-    ctx.fillStyle = '#ff6bbb'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'left';
-    let yy = 80;
-    if (p.rushTimer > 0) yy += 15;
-    if (p.berserkLv > 0 && p.hp / p.maxHp < 0.4) yy += 15;
+    ctx.fillStyle = '#ff6bbb'; ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'left';
+    let yy = 92;
+    if (p.rushTimer > 0) yy += 16;
+    if (p.berserkLv > 0 && p.hp / p.maxHp < 0.4) yy += 16;
     ctx.fillText('💉 SPD+' + bonus + '%', 14, yy);
   }
   // XPブーストインジケーター（強欲の輝き発動中）
   if (game.xpBoostTimer > 0) {
     const pct = Math.min(1, game.xpBoostTimer / 30);
-    const bx3 = 14, by3 = 46, bw3 = 120, bh3 = 6;
+    const bx3 = 14, by3 = 56, bw3 = 120, bh3 = 7;
     ctx.fillStyle = 'rgba(0,0,0,.4)'; ctx.fillRect(bx3, by3, bw3, bh3);
     ctx.fillStyle = '#ffea00'; ctx.shadowColor = '#ffea00'; ctx.shadowBlur = 8;
     ctx.fillRect(bx3, by3, bw3 * pct, bh3);
     ctx.shadowBlur = 0;
-    ctx.textAlign = 'left'; ctx.fillStyle = '#ffea00'; ctx.font = 'bold 10px sans-serif';
-    ctx.fillText('💎 XP×1.6  ' + Math.ceil(game.xpBoostTimer) + 's', bx3, by3 + 18);
+    ctx.textAlign = 'left'; ctx.fillStyle = '#ffea00'; ctx.font = 'bold 11px sans-serif';
+    ctx.fillText('💎 XP×1.6  ' + Math.ceil(game.xpBoostTimer) + 's', bx3, by3 + 20);
   }
 
   // ボス・ミニボスのHPバーを画面下部中央に大きく表示（Cycle6）
