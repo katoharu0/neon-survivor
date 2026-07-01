@@ -352,7 +352,7 @@ function newPlayer() {
     x: 0, y: 0, r: 17,
     speed: 210,
     hp: 120, maxHp: 120,
-    level: 1, xp: 0, xpNext: 4,
+    level: 1, xp: 0, xpNext: 3,
     invuln: 0,             // 被弾後の無敵時間
     regenDelay: 0,         // 被弾後しばらく回復停止（粘りすぎ防止）
     pickupRange: 175,      // XP吸引の範囲（広めにして回収しやすく）
@@ -891,7 +891,7 @@ function gainXP(amount) {
     p.xp -= p.xpNext;
     p.level++;
     // 急加速する2次曲線（100レベルでクリアを目標）
-    p.xpNext = Math.round((4 + p.level * 2.8 + p.level * p.level * 0.056) / 0.7);
+    p.xpNext = Math.round(4 + p.level * 2.8 + p.level * p.level * 0.056);
     rollChoices();
     pointer.down = false; // レベルアップ突入時も移動入力をリセット
     state = 'levelup';
