@@ -724,6 +724,17 @@ function rollChoices() {
   // まだ足りなければ武器系の残りで補充
   for (const o of weaponUpgrades.slice(1)) { if (picks.length >= 3) break; picks.push(o); }
 
+  // 未取得アイテムが1つも選ばれていなければ、poolから未取得を1枚差し替えて保証する
+  const uc = game.player.upgradeCount || {};
+  const isNew = o => !o.id || !uc[o.id];
+  if (picks.length > 0 && !picks.some(isNew)) {
+    const newItems = pool.filter(o => isNew(o) && !picks.includes(o));
+    if (newItems.length) {
+      shuffle(newItems);
+      picks[picks.length - 1] = newItems[0];
+    }
+  }
+
   // 順序をシャッフルして固定位置に見えないようにする
   shuffle(picks);
   game.choices = picks.slice(0, 3);
