@@ -363,7 +363,6 @@ function newPlayer() {
     thorns: 0,             // 接触してきた敵への反射ダメージ
     dodge: 0,              // 被弾を確率で完全回避（0〜0.30）
     xpMul: 1,              // XP獲得倍率
-    vampire: 0,            // 敵キル時HP回復量（吸血アップグレード）
     barrierActive: false,  // バリアアップグレードを取得済みか
     barrierCharge: 0,      // バリアの充電量（20秒で1発分）
     dashCd: 0,             // ダッシュのクールダウン（3秒）
@@ -449,11 +448,13 @@ function enemyKinds(t) {
   const endless = game && game.mode === 'endless';
   const loops = endless ? game.endlessLoops : 0;
   const loopBoost = 1 + loops * 0.45;
-  // 硬さ・攻撃力・速度は時間でゆるやかに直線上昇し、クリア時(9分)にちょうど2倍になる
-  const hpScale = (1 + t / CLEAR_TIME) * loopBoost;
-  const xpScale = 1 + t / 200;                                    // XP味は従来通り（レベル調整はxpNext側で行う）
-  const dmgScale = (1 + t / CLEAR_TIME) * loopBoost;
-  const spdScale = (1 + t / CLEAR_TIME) * (1 + loops * 0.14);
+  // 従来の曲線に「時間経過でじわじわ効く倍率（クリア時にちょうど×2）」を掛ける
+  // → 終盤にプレイヤーが強くなりすぎて敵が置いていかれるのを防ぐ
+  const lateMul = 1 + t / CLEAR_TIME;
+  const hpScale = (1 + t / 46 + (t * t) / 500000) * lateMul * loopBoost;   // 後半ほど加速度的に硬く
+  const xpScale = 1 + t / 200;
+  const dmgScale = (1 + t / 200 + (t * t) / 900000) * lateMul * loopBoost; // 序盤は控えめ→終盤きつく
+  const spdScale = (1 + t / 620) * lateMul * (1 + loops * 0.14);           // 速度も終盤は逃げ切れないほどに
   const xs = (base) => Math.max(1, Math.ceil(base * xpScale));
   const ds = (base) => Math.round(base * dmgScale);
   const ss = (base) => base * spdScale;
@@ -688,7 +689,6 @@ function buildUpgradePool() {
   if (p.armor < 0.45) pool.push({ id: 'armor', name: '装甲', desc: '被ダメージ -9%（上限45%）', icon: '🛡', apply: () => { p.armor = Math.min(0.45, p.armor + 0.09); } });
   // 一時バフ（重ねがけで延長、最大60秒）
   pool.push({ id: 'greed', name: '強欲の輝き', desc: '30秒間 XP+60%（重ねがけで延長）', icon: '💎', apply: () => { game.xpBoostTimer = Math.min(60, (game.xpBoostTimer || 0) + 30); floatText(p.x, p.y - 40, 'XPブースト 30秒!', '#ffea00'); } });
-  if (p.vampire < 4) pool.push({ id: 'vampire', name: '吸血', desc: 'キルごとに HP +1 回復（最大4回取得）', icon: '🩸', apply: () => { p.vampire = Math.min(4, p.vampire + 1); } });
   // ---- 追加パッシブ（種類を増やして組み立ての幅を出す） ----
   pool.push({ id: 'haste', name: '高速詠唱', desc: '全武器の発動が 8% 速くなる', icon: '⏩', apply: () => applyHaste(0.92) });
   pool.push({ id: 'thorns', name: 'スパイク装甲', desc: '接触した敵に反射ダメージ +16', icon: '🌵', apply: () => { p.thorns = (p.thorns || 0) + 16; } });
@@ -881,8 +881,6 @@ function killEnemy(e) {
       Sound.overdrive();
       shake(8);
     }
-    // 吸血アップグレード：キルごとにHP回復
-    if (p2.vampire > 0) p2.hp = Math.min(p2.maxHp, p2.hp + p2.vampire);
     // ヘルスオーブ：低HPほど出やすい（Cycle16）
     const hpRatio = game.player.hp / game.player.maxHp;
     const orbChance = 0.025 + Math.max(0, 0.5 - hpRatio) * 0.10;
@@ -902,8 +900,8 @@ function gainXP(amount) {
   while (p.xp >= p.xpNext) {
     p.xp -= p.xpNext;
     p.level++;
-    // 後半ほど重くなる2次曲線。敵スケール2倍上限(enemyKinds)との組み合わせでクリア時Lv80目安
-    p.xpNext = Math.round(4 + p.level * 2.8 + p.level * p.level * 0.48);
+    // 後半ほど重くなる2次曲線。敵の終盤×2スケール(enemyKinds)との組み合わせでクリア時Lv80目安
+    p.xpNext = Math.round(4 + p.level * 2.8 + p.level * p.level * 0.15);
     rollChoices();
     pointer.down = false; // レベルアップ突入時も移動入力をリセット
     state = 'levelup';
