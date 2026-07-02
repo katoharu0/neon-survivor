@@ -449,10 +449,11 @@ function enemyKinds(t) {
   const endless = game && game.mode === 'endless';
   const loops = endless ? game.endlessLoops : 0;
   const loopBoost = 1 + loops * 0.45;
-  const hpScale = (1 + t / 46 + (t * t) / 500000) * loopBoost;   // 後半ほど加速度的に硬く（強ビルドでも一掃され続けない）
-  const xpScale = 1 + t / 200;                                    // 旧式に戻す（新xpNext式との組み合わせで10分100-200レベを狙う）
-  const dmgScale = (1 + t / 200 + (t * t) / 900000) * loopBoost;  // 序盤は控えめ→後半きつく（初心者の出だしを守りつつ終盤は本当に死ぬ）
-  const spdScale = (1 + t / 620) * (1 + loops * 0.14);            // 速度も上げて逃げ切れなくする
+  // 硬さ・攻撃力・速度は時間でゆるやかに直線上昇し、クリア時(9分)にちょうど2倍になる
+  const hpScale = (1 + t / CLEAR_TIME) * loopBoost;
+  const xpScale = 1 + t / 200;                                    // XP味は従来通り（レベル調整はxpNext側で行う）
+  const dmgScale = (1 + t / CLEAR_TIME) * loopBoost;
+  const spdScale = (1 + t / CLEAR_TIME) * (1 + loops * 0.14);
   const xs = (base) => Math.max(1, Math.ceil(base * xpScale));
   const ds = (base) => Math.round(base * dmgScale);
   const ss = (base) => base * spdScale;
@@ -901,8 +902,8 @@ function gainXP(amount) {
   while (p.xp >= p.xpNext) {
     p.xp -= p.xpNext;
     p.level++;
-    // 急加速する2次曲線（序盤はほぼ変わらず、後半ほど重くなる。9分で目安Lv80）
-    p.xpNext = Math.round(4 + p.level * 2.8 + p.level * p.level * 0.085);
+    // 後半ほど重くなる2次曲線。敵スケール2倍上限(enemyKinds)との組み合わせでクリア時Lv80目安
+    p.xpNext = Math.round(4 + p.level * 2.8 + p.level * p.level * 0.48);
     rollChoices();
     pointer.down = false; // レベルアップ突入時も移動入力をリセット
     state = 'levelup';
