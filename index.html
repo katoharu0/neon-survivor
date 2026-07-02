@@ -2563,48 +2563,6 @@ function drawHUD() {
     ctx.shadowBlur = 0;
   }
 
-  // ダッシュCDインジケーター（XPバー下の細いバー）
-  const dashMax = p.quickDash ? 1.5 : 3;
-  const dashReady = p.dashCd <= 0;
-  const dashRatio = dashReady ? 1 : clamp(1 - p.dashCd / dashMax, 0, 1);
-  ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillRect(14, 57, 100, 4);
-  ctx.fillStyle = dashReady ? '#4be0ff' : '#2a7090';
-  if (dashReady) { ctx.shadowColor = '#4be0ff'; ctx.shadowBlur = 6; }
-  ctx.fillRect(14, 57, 100 * dashRatio, 4);
-  ctx.shadowBlur = 0; ctx.font = '10px sans-serif'; ctx.fillStyle = dashReady ? '#4be0ff' : '#5588aa';
-  ctx.fillText(dashReady ? '⚡DASH' : '⚡' + Math.ceil(p.dashCd) + 's', 122, 62);
-
-  // ラッシュブーストインジケーター（ラッシュ発動中）
-  if (p.rushTimer > 0) {
-    ctx.fillStyle = '#4be0ff'; ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'left';
-    ctx.fillText('💨 RUSH  ' + p.rushTimer.toFixed(1) + 's', 14, 92);
-  }
-  // バーサーク状態インジケーター
-  if (p.berserkLv > 0 && p.hp / p.maxHp < 0.4) {
-    ctx.fillStyle = '#ff5c00'; ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'left';
-    ctx.fillText('🔥 BERSERK', 14, p.rushTimer > 0 ? 108 : 92);
-  }
-  // アドレナリン状態インジケーター（HP 50%以下で速度ボーナス中）
-  if (p.adrenalineLv > 0 && p.hp / p.maxHp < 0.5) {
-    const bonus = Math.round(p.adrenalineLv * 15 * (1 - clamp(p.hp / p.maxHp, 0, 1)));
-    ctx.fillStyle = '#ff6bbb'; ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'left';
-    let yy = 92;
-    if (p.rushTimer > 0) yy += 16;
-    if (p.berserkLv > 0 && p.hp / p.maxHp < 0.4) yy += 16;
-    ctx.fillText('💉 SPD+' + bonus + '%', 14, yy);
-  }
-  // XPブーストインジケーター（強欲の輝き発動中）
-  if (game.xpBoostTimer > 0) {
-    const pct = Math.min(1, game.xpBoostTimer / 30);
-    const bx3 = 14, by3 = 56, bw3 = 120, bh3 = 7;
-    ctx.fillStyle = 'rgba(0,0,0,.4)'; ctx.fillRect(bx3, by3, bw3, bh3);
-    ctx.fillStyle = '#ffea00'; ctx.shadowColor = '#ffea00'; ctx.shadowBlur = 8;
-    ctx.fillRect(bx3, by3, bw3 * pct, bh3);
-    ctx.shadowBlur = 0;
-    ctx.textAlign = 'left'; ctx.fillStyle = '#ffea00'; ctx.font = 'bold 11px sans-serif';
-    ctx.fillText('💎 XP×1.6  ' + Math.ceil(game.xpBoostTimer) + 's', bx3, by3 + 20);
-  }
-
   // ボス・ミニボスのHPバーを画面下部中央に大きく表示（Cycle6）
   const activeBoss = game.bossRef && !game.bossRef.dead ? game.bossRef
     : game.enemies.find(e => !e.dead && (e.boss || e.kind === 'miniboss'));
