@@ -901,8 +901,8 @@ function gainXP(amount) {
   while (p.xp >= p.xpNext) {
     p.xp -= p.xpNext;
     p.level++;
-    // 急加速する2次曲線（100レベルでクリアを目標）
-    p.xpNext = Math.round(4 + p.level * 2.8 + p.level * p.level * 0.056);
+    // 急加速する2次曲線（序盤はほぼ変わらず、後半ほど重くなる。9分で目安Lv80）
+    p.xpNext = Math.round(4 + p.level * 2.8 + p.level * p.level * 0.085);
     rollChoices();
     pointer.down = false; // レベルアップ突入時も移動入力をリセット
     state = 'levelup';
@@ -2440,34 +2440,82 @@ function drawTexts() {
 }
 
 // ---- HUD（上部の情報表示） ----
+// スマホ（タッチ端末）では左上ステータス一式をひと回り大きく表示する（原点(14,14)基準で拡大）
+const HUD_SCALE = IS_TOUCH ? 1.35 : 1;
 function drawHUD() {
   const p = game.player;
-  ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.fillRect(14, 14, 240, 22);
+  ctx.save();
+  ctx.translate(14, 14);
+  ctx.scale(HUD_SCALE, HUD_SCALE);
+  ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.fillRect(0, 0, 240, 22);
   const hpPct = clamp(p.hp / p.maxHp, 0, 1);
   const hpCol = hpPct > 0.50 ? '#ff5c7a' : (hpPct > 0.25 ? '#ff8c00' : '#ff2222');
   ctx.fillStyle = hpCol;
   if (hpPct <= 0.25) { ctx.shadowColor = '#ff2222'; ctx.shadowBlur = (Math.sin(Date.now() / 150) * 0.5 + 0.5) * 12; }
-  ctx.fillRect(14, 14, 240 * hpPct, 22);
+  ctx.fillRect(0, 0, 240 * hpPct, 22);
   ctx.shadowBlur = 0;
-  ctx.strokeStyle = 'rgba(255,255,255,.4)'; ctx.lineWidth = 1; ctx.strokeRect(14, 14, 240, 22);
+  ctx.strokeStyle = 'rgba(255,255,255,.4)'; ctx.lineWidth = 1; ctx.strokeRect(0, 0, 240, 22);
   ctx.fillStyle = '#fff'; ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'left';
-  ctx.fillText('HP ' + Math.ceil(p.hp) + ' / ' + p.maxHp, 20, 30);
+  ctx.fillText('HP ' + Math.ceil(p.hp) + ' / ' + p.maxHp, 6, 16);
 
-  ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.fillRect(14, 40, 240, 13);
-  ctx.fillStyle = '#8affc1'; ctx.fillRect(14, 40, 240 * clamp(p.xp / p.xpNext, 0, 1), 13);
-  ctx.fillStyle = '#cfe8ff'; ctx.fillText('Lv ' + p.level, 260, 34);
+  ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.fillRect(0, 26, 240, 13);
+  ctx.fillStyle = '#8affc1'; ctx.fillRect(0, 26, 240 * clamp(p.xp / p.xpNext, 0, 1), 13);
+  ctx.fillStyle = '#cfe8ff'; ctx.font = 'bold 13px sans-serif'; ctx.fillText('Lv ' + p.level, 246, 20);
 
   // 取得済み武器アイコン（進化は★）
-  let ix = 14;
+  let ix = 0;
   for (const key in p.weapons) {
     const wp = p.weapons[key];
     if (wp.lv > 0) {
       ctx.font = '19px sans-serif'; ctx.globalAlpha = 1; ctx.fillStyle = '#cfe8ff';
-      ctx.fillText(WEAPON_META[key].icon, ix, 70);
-      if (wp.evolved) { ctx.fillStyle = '#ffd23f'; ctx.font = '10px sans-serif'; ctx.fillText('★', ix + 15, 60); }
+      ctx.fillText(WEAPON_META[key].icon, ix, 56);
+      if (wp.evolved) { ctx.fillStyle = '#ffd23f'; ctx.font = '10px sans-serif'; ctx.fillText('★', ix + 15, 46); }
       ix += 30;
     }
   }
+
+  // ダッシュCDインジケーター（XPバー下の細いバー）
+  const dashMax = p.quickDash ? 1.5 : 3;
+  const dashReady = p.dashCd <= 0;
+  const dashRatio = dashReady ? 1 : clamp(1 - p.dashCd / dashMax, 0, 1);
+  ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillRect(0, 43, 100, 4);
+  ctx.fillStyle = dashReady ? '#4be0ff' : '#2a7090';
+  if (dashReady) { ctx.shadowColor = '#4be0ff'; ctx.shadowBlur = 6; }
+  ctx.fillRect(0, 43, 100 * dashRatio, 4);
+  ctx.shadowBlur = 0; ctx.font = '10px sans-serif'; ctx.fillStyle = dashReady ? '#4be0ff' : '#5588aa';
+  ctx.fillText(dashReady ? '⚡DASH' : '⚡' + Math.ceil(p.dashCd) + 's', 108, 48);
+
+  // ラッシュブーストインジケーター（ラッシュ発動中）
+  if (p.rushTimer > 0) {
+    ctx.fillStyle = '#4be0ff'; ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'left';
+    ctx.fillText('💨 RUSH  ' + p.rushTimer.toFixed(1) + 's', 0, 78);
+  }
+  // バーサーク状態インジケーター
+  if (p.berserkLv > 0 && p.hp / p.maxHp < 0.4) {
+    ctx.fillStyle = '#ff5c00'; ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'left';
+    ctx.fillText('🔥 BERSERK', 0, p.rushTimer > 0 ? 94 : 78);
+  }
+  // アドレナリン状態インジケーター（HP 50%以下で速度ボーナス中）
+  if (p.adrenalineLv > 0 && p.hp / p.maxHp < 0.5) {
+    const bonus = Math.round(p.adrenalineLv * 15 * (1 - clamp(p.hp / p.maxHp, 0, 1)));
+    ctx.fillStyle = '#ff6bbb'; ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'left';
+    let yy = 78;
+    if (p.rushTimer > 0) yy += 16;
+    if (p.berserkLv > 0 && p.hp / p.maxHp < 0.4) yy += 16;
+    ctx.fillText('💉 SPD+' + bonus + '%', 0, yy);
+  }
+  // XPブーストインジケーター（強欲の輝き発動中）
+  if (game.xpBoostTimer > 0) {
+    const pct = Math.min(1, game.xpBoostTimer / 30);
+    const bx3 = 0, by3 = 42, bw3 = 120, bh3 = 7;
+    ctx.fillStyle = 'rgba(0,0,0,.4)'; ctx.fillRect(bx3, by3, bw3, bh3);
+    ctx.fillStyle = '#ffea00'; ctx.shadowColor = '#ffea00'; ctx.shadowBlur = 8;
+    ctx.fillRect(bx3, by3, bw3 * pct, bh3);
+    ctx.shadowBlur = 0;
+    ctx.textAlign = 'left'; ctx.fillStyle = '#ffea00'; ctx.font = 'bold 11px sans-serif';
+    ctx.fillText('💎 XP×1.6  ' + Math.ceil(game.xpBoostTimer) + 's', bx3, by3 + 20);
+  }
+  ctx.restore();
 
   ctx.textAlign = 'right'; ctx.font = 'bold 22px monospace'; ctx.fillStyle = '#eaffff';
   const tt = Math.floor(game.time);
@@ -2794,10 +2842,12 @@ function drawLevelUp() {
   ctx.fillText('強化を1つ選択（クリック または 1 / 2 / 3 キー）', W / 2, 150);
 
   cardRects.length = 0;
-  const cw = 220, ch = 230, gap = 28;
+  // スマホではカードと引き直しボタンをひと回り大きく（タップしやすく）
+  const cw = IS_TOUCH ? 258 : 220, ch = IS_TOUCH ? 268 : 230, gap = IS_TOUCH ? 18 : 28;
+  const fs = IS_TOUCH ? 1.12 : 1; // フォント拡大率
   const total = game.choices.length * cw + (game.choices.length - 1) * gap;
   let x0 = (W - total) / 2;
-  const y0 = 190;
+  const y0 = 172;
   for (let i = 0; i < game.choices.length; i++) {
     const c = game.choices[i];
     const x = x0 + i * (cw + gap);
@@ -2806,27 +2856,27 @@ function drawLevelUp() {
     ctx.strokeStyle = c.isEvo ? '#ffd23f' : (c.isNew ? '#8affc1' : '#5c8aff');
     ctx.lineWidth = c.isEvo ? 3 : 2;
     roundRect(x, y0, cw, ch, 14); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = '#fff'; ctx.font = '46px sans-serif';
+    ctx.fillStyle = '#fff'; ctx.font = Math.round(46 * fs) + 'px sans-serif';
     ctx.fillText(c.icon, x + cw / 2, y0 + 76);
-    ctx.fillStyle = c.isEvo ? '#ffd23f' : (c.isNew ? '#8affc1' : '#eaffff'); ctx.font = 'bold 19px sans-serif';
-    ctx.fillText(c.name, x + cw / 2, y0 + 116);
-    if (c.isEvo) { ctx.fillStyle = '#ffd23f'; ctx.font = 'bold 12px sans-serif'; ctx.fillText('★ EVOLUTION', x + cw / 2, y0 + 138); }
-    else if (c.isNew) { ctx.fillStyle = '#8affc1'; ctx.font = 'bold 12px sans-serif'; ctx.fillText('+ NEW', x + cw / 2, y0 + 138); }
-    ctx.fillStyle = '#bcd2f0'; ctx.font = '14px sans-serif';
-    wrapText(c.desc, x + cw / 2, y0 + 166, cw - 28, 19);
+    ctx.fillStyle = c.isEvo ? '#ffd23f' : (c.isNew ? '#8affc1' : '#eaffff'); ctx.font = 'bold ' + Math.round(19 * fs) + 'px sans-serif';
+    ctx.fillText(c.name, x + cw / 2, y0 + 118);
+    if (c.isEvo) { ctx.fillStyle = '#ffd23f'; ctx.font = 'bold ' + Math.round(12 * fs) + 'px sans-serif'; ctx.fillText('★ EVOLUTION', x + cw / 2, y0 + 140); }
+    else if (c.isNew) { ctx.fillStyle = '#8affc1'; ctx.font = 'bold ' + Math.round(12 * fs) + 'px sans-serif'; ctx.fillText('+ NEW', x + cw / 2, y0 + 140); }
+    ctx.fillStyle = '#bcd2f0'; ctx.font = Math.round(14 * fs) + 'px sans-serif';
+    wrapText(c.desc, x + cw / 2, y0 + 168, cw - 28, Math.round(19 * fs));
     // 系統表示：進化して名前が変わっても「元はどの武器か」が分かるようにする
     const famKey = c.id ? c.id.split('_')[0] : '';
     if (WEAPON_META[famKey]) {
-      ctx.fillStyle = '#7f93b5'; ctx.font = '11px sans-serif';
+      ctx.fillStyle = '#7f93b5'; ctx.font = Math.round(11 * fs) + 'px sans-serif';
       ctx.fillText('系統: ' + WEAPON_META[famKey].icon + ' ' + WEAPON_META[famKey].base, x + cw / 2, y0 + ch - 32);
     }
-    ctx.fillStyle = '#6a7fa0'; ctx.font = 'bold 13px sans-serif';
+    ctx.fillStyle = '#6a7fa0'; ctx.font = 'bold ' + Math.round(13 * fs) + 'px sans-serif';
     ctx.fillText('[ ' + (i + 1) + ' ]', x + cw / 2, y0 + ch - 16);
     cardRects.push({ x, y: y0, w: cw, h: ch, idx: i });
   }
 
-  // リロールボタン（Cycle10）
-  const rbw = 180, rbh = 38, rbx = (W - rbw) / 2, rby = y0 + ch + 18;
+  // リロールボタン（Cycle10）：スマホでは大きめにしてタップしやすく
+  const rbw = IS_TOUCH ? 240 : 180, rbh = IS_TOUCH ? 56 : 38, rbx = (W - rbw) / 2, rby = y0 + ch + 18;
   const canReroll = game.rerollsLeft > 0;
   const hoverRb = pointer.x >= rbx && pointer.x <= rbx + rbw && pointer.y >= rby && pointer.y <= rby + rbh;
   ctx.fillStyle = canReroll ? (hoverRb ? 'rgba(90,140,255,.95)' : 'rgba(40,70,140,.88)') : 'rgba(40,40,60,.6)';
@@ -2834,8 +2884,8 @@ function drawLevelUp() {
   ctx.lineWidth = 2;
   roundRect(rbx, rby, rbw, rbh, 10); ctx.fill(); ctx.stroke();
   ctx.fillStyle = canReroll ? '#cfe8ff' : '#5a6a80';
-  ctx.font = 'bold 16px sans-serif'; ctx.textAlign = 'center';
-  ctx.fillText('🔄 引き直し（残 ' + game.rerollsLeft + '）', W / 2, rby + 25);
+  ctx.font = 'bold ' + (IS_TOUCH ? 19 : 16) + 'px sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText('🔄 引き直し（残 ' + game.rerollsLeft + '）', W / 2, rby + rbh / 2 + (IS_TOUCH ? 7 : 6));
   rerollBtnRect.x = rbx; rerollBtnRect.y = rby; rerollBtnRect.w = rbw; rerollBtnRect.h = rbh;
 }
 
