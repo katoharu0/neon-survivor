@@ -208,7 +208,7 @@ const Sound = (() => {
   return {
     shoot: () => blip(660, 0.07, 'square', 0.04, 880),
     hit:   () => blip(220, 0.05, 'triangle', 0.04),
-    kill:  () => blip(180, 0.16, 'sawtooth', 0.08, 60),
+    kill:  (pitch) => blip(180 * (pitch || 1), 0.16, 'sawtooth', 0.08, 60 * (pitch || 1)), // コンボでピッチが上がる（Cycle35）
     hurt:  () => blip(120, 0.22, 'sawtooth', 0.18, 50),
     nova:  () => blip(140, 0.30, 'sine', 0.12, 520),
     zap:   () => blip(900, 0.10, 'square', 0.06, 300),
@@ -231,6 +231,10 @@ const Sound = (() => {
     revive: () => { blip(110, 0.18, 'sawtooth', 0.18, 60); setTimeout(() => blip(220, 0.14, 'sine', 0.14, 440), 120); },
     // 宝箱を開けた時のきらびやかな上昇アルペジオ（Cycle26）
     chest: () => { blip(523, 0.09, 'triangle', 0.13, 784); setTimeout(() => blip(784, 0.09, 'triangle', 0.14, 1047), 85); setTimeout(() => blip(1047, 0.09, 'triangle', 0.14, 1319), 170); setTimeout(() => blip(1319, 0.20, 'sine', 0.15), 255); },
+    // ダッシュ発動の風切り音（Cycle33）
+    dash: () => blip(300, 0.12, 'sine', 0.10, 900),
+    // 低HP時の心拍音（Cycle32）：低いドッ・ドッの2連
+    heartbeat: () => { blip(70, 0.09, 'sine', 0.20, 55); setTimeout(() => blip(60, 0.11, 'sine', 0.16, 45), 140); },
     toggle: () => { muted = !muted; return muted; },
     isMuted: () => muted,
     resume: ensure,
@@ -267,6 +271,10 @@ function tryDash() {
   if (p.dashCd > 0) return;
   p.dashing = 0.18;
   p.dashCd = p.quickDash ? 1.5 : 3;
+  // ダッシュの発動感（Cycle33）：風切り音＋足元に白い破裂
+  Sound.dash();
+  burst(p.x, p.y, '#dcfaff', 10, 150);
+  shake(2);
 }
 
 addEventListener('keydown', e => {
@@ -428,6 +436,8 @@ function resetGame(mode) {
     healthOrbs: [],         // ヘルスオーブ（ドロップ回復アイテム）
     chests: [],             // 宝箱（ミニボス等がドロップ。拾うと無料強化。Cycle26）
     chestsOpened: 0,        // 開けた宝箱の数（リザルト表示用）
+    hitstop: 0,             // 大物撃破時に世界を一瞬止める残り秒数（Cycle31）
+    heartbeatCd: 0,         // 心拍音の間隔タイマー（Cycle32）
     goldenCd: rand(45, 70), // ゴールデンランナーの次回出現までの秒数（Cycle29）
     trail: [],              // プレイヤーの移動トレイル
     player: newPlayer(),
@@ -909,6 +919,7 @@ function killEnemy(e) {
     game.chests.push({ x: e.x, y: e.y, r: 15, t: 0 });
     floatText(e.x, e.y - 30, '宝箱ドロップ！', '#ffd23f', true);
     burst(e.x, e.y, '#ffd23f', 24, 260);
+    game.hitstop = 0.08;
   }
 
   // 分裂する敵は小型を散らす
@@ -928,8 +939,8 @@ function killEnemy(e) {
     game.gems.push({ x: e.x + rand(-16, 16), y: e.y + rand(-16, 16), value: per, vx: rand(-40, 40), vy: rand(-40, 40), big: e.elite || isBig });
   }
 
-  if (isBig) { shake(e.boss ? 26 : 16); }
-  Sound.kill();
+  if (isBig) { shake(e.boss ? 26 : 16); game.hitstop = e.boss ? 0.18 : 0.10; } // 撃破の重み（Cycle31）
+  Sound.kill(1 + Math.min(0.9, game.combo * 0.015)); // コンボが乗るほど音が高くなる（Cycle35）
 
   const p2 = game.player;
   // 雑魚敵限定の処理
@@ -989,6 +1000,8 @@ const STEP = 1 / 60;
 
 function update(dt) {
   const g = game, p = g.player;
+  // ヒットストップ（Cycle31）：大物撃破の瞬間だけ世界が一瞬止まり、重みが出る
+  if (g.hitstop > 0) { g.hitstop -= dt; return; }
   g.time += dt;
 
   // --- ウェーブ遷移の検知（背景・敵構成が切り替わる節目） ---
@@ -1023,6 +1036,12 @@ function update(dt) {
       g.combo = 0;
     }
   }
+  // 低HPの心拍音（Cycle32）：赤ビネットと同期して耳でも危機を知らせる
+  if (p.hp / p.maxHp < 0.35) {
+    g.heartbeatCd -= dt;
+    if (g.heartbeatCd <= 0) { Sound.heartbeat(); g.heartbeatCd = 0.9; }
+  } else g.heartbeatCd = 0;
+
   // バナーの寿命
   if (g.banner) { g.banner.life -= dt; if (g.banner.life <= 0) g.banner = null; }
   // エリートバナーの間隔タイマー（Cycle19）
@@ -2790,10 +2809,13 @@ function drawEnemyRadar() {
     // 画面端のクランプ位置を計算
     const cx = clamp(W / 2 + Math.cos(angle) * (W / 2 - margin), margin, W - margin);
     const cy = clamp(H / 2 + Math.sin(angle) * (H / 2 - margin), margin, H - margin);
+    // ボス級・金色の敵は大きく脈動するマーカーで見逃さないように（Cycle34）
+    const big = e.boss || e.kind === 'miniboss' || e.golden;
+    const sc = big ? 1.8 + 0.3 * Math.sin(performance.now() / 120) : 1;
     ctx.save();
-    ctx.translate(cx, cy); ctx.rotate(angle);
+    ctx.translate(cx, cy); ctx.rotate(angle); ctx.scale(sc, sc);
     ctx.fillStyle = e.boss ? '#ff4be0' : (e.kind === 'miniboss' ? '#ffd23f' : (e.golden ? '#ffe98a' : '#ff6b6b'));
-    ctx.shadowColor = ctx.fillStyle; ctx.shadowBlur = 6;
+    ctx.shadowColor = ctx.fillStyle; ctx.shadowBlur = big ? 14 : 6;
     ctx.beginPath(); ctx.moveTo(7, 0); ctx.lineTo(-5, -4); ctx.lineTo(-5, 4); ctx.closePath(); ctx.fill();
     ctx.restore();
   }
