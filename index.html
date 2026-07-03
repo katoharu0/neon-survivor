@@ -229,6 +229,8 @@ const Sound = (() => {
     orbHeal: () => { blip(660, 0.08, 'sine', 0.07, 990); setTimeout(() => blip(880, 0.06, 'sine', 0.06), 60); },
     // 蘇生発動時の重い鼓動音
     revive: () => { blip(110, 0.18, 'sawtooth', 0.18, 60); setTimeout(() => blip(220, 0.14, 'sine', 0.14, 440), 120); },
+    // 宝箱を開けた時のきらびやかな上昇アルペジオ（Cycle26）
+    chest: () => { blip(523, 0.09, 'triangle', 0.13, 784); setTimeout(() => blip(784, 0.09, 'triangle', 0.14, 1047), 85); setTimeout(() => blip(1047, 0.09, 'triangle', 0.14, 1319), 170); setTimeout(() => blip(1319, 0.20, 'sine', 0.15), 255); },
     toggle: () => { muted = !muted; return muted; },
     isMuted: () => muted,
     resume: ensure,
@@ -384,6 +386,9 @@ function newPlayer() {
     adrenalineLv: 0,       // アドレナリン: 低HPほど移動速度ボーナス
     deathDefyLv: 0,        // 死の免除: 1回だけ瀕死から蘇生
     strikerLv: 0,          // ストライカー: ダッシュ中に敵にダメージ
+    vampLv: 0,             // 吸血: 敵撃破時に確率でHP回復（Cycle27）
+    detonateLv: 0,         // 起爆: 敵撃破時に確率で爆発（Cycle28）
+    luckyLv: 0,            // 幸運: 宝箱・回復オーブの当たりが増える（Cycle30）
     facing: { x: 1, y: 0 },// 向き（移動方向）
     upgradeCount: {},       // 各アップグレード個別の取得回数（上限管理用）
     weapons: {
@@ -421,6 +426,9 @@ function resetGame(mode) {
     particles: [],
     texts: [],              // ダメージ数字などの浮き文字
     healthOrbs: [],         // ヘルスオーブ（ドロップ回復アイテム）
+    chests: [],             // 宝箱（ミニボス等がドロップ。拾うと無料強化。Cycle26）
+    chestsOpened: 0,        // 開けた宝箱の数（リザルト表示用）
+    goldenCd: rand(45, 70), // ゴールデンランナーの次回出現までの秒数（Cycle29）
     trail: [],              // プレイヤーの移動トレイル
     player: newPlayer(),
     spawnTimer: 0,
@@ -712,6 +720,12 @@ function buildUpgradePool() {
   if (p.deathDefyLv < 1) pool.push({ id: 'deathdefy', name: '死の免除', desc: '一度だけHP1で致死ダメージを生き残る', icon: '⚰️', apply: () => { p.deathDefyLv = 1; floatText(p.x, p.y - 40, '死の免除！', '#ff4b4b'); } });
   // ストライカー: ダッシュ中に接触した敵にダメージ
   if (p.strikerLv < 2) pool.push({ id: 'striker', name: 'ストライカー', desc: 'ダッシュで敵に突撃するとダメージ（2段階）', icon: '🗡️', apply: () => { p.strikerLv++; floatText(p.x, p.y - 40, 'ストライカー！', '#ff8c00'); } });
+  // 吸血: 敵撃破時に確率でHP回復（Cycle27）
+  if (p.vampLv < 2) pool.push({ id: 'vamp', name: '吸血', desc: '敵を倒すと 35% で HP+1 回復（2段階）', icon: '🩸', apply: () => { p.vampLv++; floatText(p.x, p.y - 40, '吸血！', '#ff6aa0'); } });
+  // 起爆: 倒した敵が確率で爆発し、周囲を巻き込んで連鎖（Cycle28）
+  if (p.detonateLv < 2) pool.push({ id: 'detonate', name: '起爆', desc: '倒した敵が ' + (10 * (p.detonateLv + 1)) + '% で爆発（連鎖あり）', icon: '💥', apply: () => { p.detonateLv++; floatText(p.x, p.y - 40, '起爆！', '#ff9b3d'); } });
+  // 幸運: 宝箱の中身と回復オーブのドロップ率が増える（Cycle30）
+  if (p.luckyLv < 2) pool.push({ id: 'lucky', name: '幸運', desc: '宝箱の中身が豪華に・回復オーブが出やすく', icon: '🍀', apply: () => { p.luckyLv++; floatText(p.x, p.y - 40, '幸運！', '#6bffb0'); } });
   return pool;
 }
 
@@ -787,6 +801,33 @@ function rerollChoices() {
   Sound.pick();
 }
 
+// 宝箱を開ける（Cycle26）：レベルアップと同じ強化プールからランダムに自動獲得。
+// 基本は 60%で1個 / 30%で2個 / 10%で3個。幸運Lv（Cycle30）で当たりが増える
+function openChest(ch) {
+  const p = game.player;
+  const roll = Math.random() + p.luckyLv * 0.18;
+  const count = roll >= 0.90 ? 3 : (roll >= 0.60 ? 2 : 1);
+  const names = [];
+  for (let i = 0; i < count; i++) {
+    const pool = buildUpgradePool().filter(o => !(o.max && o.lvOf && o.lvOf() >= o.max));
+    if (!pool.length) break;
+    const evos = pool.filter(o => o.isEvo);
+    // 進化カードが引ける状態なら 35% でそれを引く（宝箱ならではの大当たり）
+    const c = (evos.length && Math.random() < 0.35) ? evos[(Math.random() * evos.length) | 0] : pool[(Math.random() * pool.length) | 0];
+    c.apply();
+    if (c.id) p.upgradeCount[c.id] = (p.upgradeCount[c.id] || 0) + 1;
+    names.push(c.name);
+    if (c.isEvo) { Sound.evolve(); shake(10); }
+  }
+  p.hp = Math.min(p.maxHp, p.hp + 15); // おまけの回復
+  game.chestsOpened++;
+  setBanner('TREASURE!', names.join(' / ') + '（＋15 HP）', '#ffd23f');
+  floatText(ch.x, ch.y - 24, '宝箱GET!', '#ffd23f', true);
+  burst(ch.x, ch.y, '#ffd23f', 30, 300);
+  Sound.chest();
+  shake(6);
+}
+
 // =========================================================================
 //  エフェクト（パーティクル・浮き文字・画面シェイク・爆発）
 // =========================================================================
@@ -859,6 +900,15 @@ function killEnemy(e) {
     game.screenFlash = { color: e.color || '#4be0ff', life: 0.35, max: 0.35 };
     setBanner('BOSS SLAIN!', 'ミニボスを撃破！', e.color || '#4be0ff');
     shake(12);
+    // 宝箱を確定ドロップ（Cycle26）
+    game.chests.push({ x: e.x, y: e.y, r: 15, t: 0 });
+  }
+
+  // ゴールデンランナーを倒せたら宝箱ドロップ（Cycle29）
+  if (e.golden) {
+    game.chests.push({ x: e.x, y: e.y, r: 15, t: 0 });
+    floatText(e.x, e.y - 30, '宝箱ドロップ！', '#ffd23f', true);
+    burst(e.x, e.y, '#ffd23f', 24, 260);
   }
 
   // 分裂する敵は小型を散らす
@@ -894,11 +944,20 @@ function killEnemy(e) {
       Sound.overdrive();
       shake(8);
     }
-    // ヘルスオーブ：低HPほど出やすい（Cycle16）
+    // ヘルスオーブ：低HPほど出やすい（Cycle16）。幸運Lvでさらに出やすく（Cycle30）
     const hpRatio = game.player.hp / game.player.maxHp;
-    const orbChance = 0.025 + Math.max(0, 0.5 - hpRatio) * 0.10;
+    const orbChance = (0.025 + Math.max(0, 0.5 - hpRatio) * 0.10) * (1 + p2.luckyLv * 0.6);
     if (Math.random() < orbChance) {
       game.healthOrbs.push({ x: e.x, y: e.y, r: 7, value: 15, vx: rand(-24, 24), vy: rand(-24, 24) });
+    }
+    // 吸血：敵撃破時に確率でHP回復（Cycle27）
+    if (p2.vampLv > 0 && p2.hp < p2.maxHp && Math.random() < 0.35) {
+      p2.hp = Math.min(p2.maxHp, p2.hp + p2.vampLv);
+      burst(p2.x, p2.y, '#ff6aa0', 3, 60);
+    }
+    // 起爆：倒した敵が確率で爆発。巻き込んだ敵も倒せば連鎖する（Cycle28）
+    if (p2.detonateLv > 0 && Math.random() < 0.10 * p2.detonateLv) {
+      explode(e.x, e.y, 85, e.maxHp * 0.45 + 15, '#ff9b3d');
     }
   }
 
@@ -1203,6 +1262,15 @@ function update(dt) {
     }
   }
 
+  // --- 宝箱（歩いて触れると開く。吸引はされない＝取りに行く楽しみ。Cycle26） ---
+  for (const ch of g.chests) {
+    ch.t += dt;
+    if (dist2(ch.x, ch.y, p.x, p.y) < (p.r + ch.r + 8) * (p.r + ch.r + 8)) {
+      ch.dead = true;
+      openChest(ch);
+    }
+  }
+
   // --- パーティクル・浮き文字 ---
   for (const pt of g.particles) { pt.x += pt.vx * dt; pt.y += pt.vy * dt; pt.vx *= 0.92; pt.vy *= 0.92; pt.life -= dt; }
   for (const tx of g.texts) { tx.y += tx.vy * dt; tx.vy *= 0.92; tx.life -= dt; }
@@ -1218,6 +1286,7 @@ function update(dt) {
   g.particles = g.particles.filter(x => x.life > 0);
   g.texts = g.texts.filter(x => x.life > 0);
   g.healthOrbs = g.healthOrbs.filter(o => !o.dead && dist2(o.x, o.y, p.x, p.y) < 1100 * 1100);
+  g.chests = g.chests.filter(c => !c.dead); // 宝箱は遠くても消さない（レーダーで戻れる）
 }
 
 // 敵の移動（種類ごとの動き方＋減速・凍結）
@@ -1232,7 +1301,13 @@ function moveEnemy(e, dt, dx, dy, d, p) {
   if (e.slowT > 0) { e.slowT -= dt; spd *= (e.slowF || 0.5); }
 
   const mv = e.move;
-  if (mv === 'weave') {
+  if (mv === 'flee') {
+    // 逃走（ゴールデンランナー用）：プレイヤーから遠ざかりつつ蛇行（Cycle29）
+    const px = -dy, py = dx;
+    const wob = Math.sin(game.time * 4 + e.seed) * 0.8;
+    e.x += (-dx + px * wob) * spd * dt;
+    e.y += (-dy + py * wob) * spd * dt;
+  } else if (mv === 'weave') {
     // 直進方向に対して垂直方向へsin揺れ（蛇行で避けにくい）
     const px = -dy, py = dx;
     const wob = Math.sin(game.time * 5 + e.seed) * 0.7;
@@ -1282,6 +1357,35 @@ function moveEnemy(e, dt, dx, dy, d, p) {
 // ---- 敵スポーン処理（ウェーブ・ミニボス・ラスボス） ----
 function updateSpawning(dt) {
   const g = game, p = g.player;
+
+  // --- ゴールデンランナー：たまに現れて逃げ回る金色の敵。倒すと宝箱！（Cycle29） ---
+  g.goldenCd -= dt;
+  if (g.goldenCd <= 0) {
+    if (g.time > 40 && !g.enemies.some(e => e.golden && !e.dead)) {
+      g.goldenCd = rand(55, 85);
+      const e = spawnEnemy('swift', {});
+      e.golden = true;
+      e.color = '#ffd23f';
+      e.move = 'flee';
+      e.speed = 160;                    // プレイヤー(210)よりやや遅い＝追えば届く
+      e.hp = e.maxHp = e.maxHp * 8;     // 即死しない程度に固く
+      e.xp *= 6;
+      e.goldenLife = 11;                // 11秒で逃げ切られる
+      setBanner('GOLDEN RUNNER!', '金色の敵を倒すと宝箱！ 逃がすな', '#ffd23f');
+      Sound.comboMile();
+    } else g.goldenCd = 8; // 条件が合わなければ少し後に再判定
+  }
+  // 逃げ切り判定（倒せなかったら消える。宝箱なし）
+  for (const e of g.enemies) {
+    if (e.golden && !e.dead) {
+      e.goldenLife -= dt;
+      if (e.goldenLife <= 0) {
+        e.dead = true;
+        burst(e.x, e.y, '#ffd23f', 14, 180);
+        floatText(e.x, e.y, '逃げられた…', '#ffd23f');
+      }
+    }
+  }
 
   // エンドレスは周回＋経過時間で敵が増える。通常は時間で増える
   const pressure = g.mode === 'endless' ? (1 + g.endlessLoops * 0.5 + g.time / 360) : 1;
@@ -1851,6 +1955,7 @@ function render() {
     drawGems();
     drawMines();
     drawHealthOrbs();
+    drawChests();
     drawEnemies();
     drawEnemyBullets();
     drawBolts();
@@ -1953,6 +2058,30 @@ function drawHealthOrbs() {
     ctx.font = 'bold ' + Math.round(orbR * 1.4) + 'px sans-serif';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText('♥', s.x, s.y + 1);
+    ctx.restore();
+  }
+}
+
+// 宝箱の描画（Cycle26）：金色に脈動＋輝きで「拾いたくなる」見た目に
+function drawChests() {
+  for (const ch of game.chests) {
+    const s = worldToScreen(ch.x, ch.y);
+    if (s.x < -40 || s.x > W + 40 || s.y < -40 || s.y > H + 40) continue;
+    const sc = 1 + 0.10 * Math.sin(ch.t * 5);
+    ctx.save();
+    ctx.translate(s.x, s.y);
+    ctx.scale(sc, sc);
+    ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 20;
+    // 本体（茶色の箱）＋金の帯
+    ctx.fillStyle = '#7a5218';
+    ctx.fillRect(-12, -9, 24, 18);
+    ctx.fillStyle = '#ffd23f';
+    ctx.fillRect(-12, -3, 24, 5);
+    ctx.strokeStyle = '#ffe98a'; ctx.lineWidth = 2;
+    ctx.strokeRect(-12, -9, 24, 18);
+    // 鍵穴
+    ctx.fillStyle = '#3a2a08';
+    ctx.beginPath(); ctx.arc(0, 0, 2.2, 0, TAU); ctx.fill();
     ctx.restore();
   }
 }
@@ -2663,9 +2792,22 @@ function drawEnemyRadar() {
     const cy = clamp(H / 2 + Math.sin(angle) * (H / 2 - margin), margin, H - margin);
     ctx.save();
     ctx.translate(cx, cy); ctx.rotate(angle);
-    ctx.fillStyle = e.boss ? '#ff4be0' : (e.kind === 'miniboss' ? '#ffd23f' : '#ff6b6b');
+    ctx.fillStyle = e.boss ? '#ff4be0' : (e.kind === 'miniboss' ? '#ffd23f' : (e.golden ? '#ffe98a' : '#ff6b6b'));
     ctx.shadowColor = ctx.fillStyle; ctx.shadowBlur = 6;
     ctx.beginPath(); ctx.moveTo(7, 0); ctx.lineTo(-5, -4); ctx.lineTo(-5, 4); ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+  // 画面外の宝箱の方向を金色のひし形で示す（Cycle26：取り逃し防止）
+  for (const ch of game.chests) {
+    const sx = worldToScreen(ch.x, ch.y);
+    if (sx.x >= 0 && sx.x <= W && sx.y >= 0 && sx.y <= H) continue;
+    const angle = Math.atan2(ch.y - p.y, ch.x - p.x);
+    const cx = clamp(W / 2 + Math.cos(angle) * (W / 2 - margin), margin, W - margin);
+    const cy = clamp(H / 2 + Math.sin(angle) * (H / 2 - margin), margin, H - margin);
+    ctx.save();
+    ctx.translate(cx, cy); ctx.rotate(Math.PI / 4);
+    ctx.fillStyle = '#ffd23f'; ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 8;
+    ctx.fillRect(-5, -5, 10, 10);
     ctx.restore();
   }
   ctx.restore();
@@ -3093,6 +3235,10 @@ function drawResultStats() {
   if (p.berserkLv > 0) notes.push('🔥Berserk×' + p.berserkLv);
   if (p.deathDefyLv === 0 && p.deathDefied) notes.push('⚰蘇生済');
   if (p.strikerLv > 0) notes.push('🗡️Striker×' + p.strikerLv);
+  if (p.vampLv > 0) notes.push('🩸吸血×' + p.vampLv);
+  if (p.detonateLv > 0) notes.push('💥起爆×' + p.detonateLv);
+  if (p.luckyLv > 0) notes.push('🍀幸運×' + p.luckyLv);
+  if (game.chestsOpened > 0) notes.push('🎁宝箱×' + game.chestsOpened);
   if (notes.length) { ctx.font = '11px sans-serif'; ctx.fillStyle = '#c8a0ff'; ctx.fillText(notes.join('  '), W / 2, H / 2 + 144); }
 }
 
