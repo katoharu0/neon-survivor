@@ -30,3 +30,16 @@ godmodeデモ8回でXP収入中央値~4.3kを実測。人間収入推定3-3.5万
 
 ---
 
+## Commit 6a47f1f2 — 2026-07-03 17:31 UTC
+
+### Branch Purpose
+Primary development branch
+
+### Previous Progress Summary
+godmodeデモ8回でXP収入中央値~4.3kを実測。人間収入推定3-3.5万から係数0.15を算出。ユーザーの実プレイで最終確認待ち
+
+### This Commit's Contribution
+残課題: wave3突入(t=180-210)への死亡集中。demoAI 8走で勝利0/死亡中央値~198s(ただしdemoAIはランダム弱ビルドの下限目安)。次に触るならENEMY_SCHED(index.html:560付近)のwave3構成
+
+---
+
