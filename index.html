@@ -394,7 +394,6 @@ function newPlayer() {
     adrenalineLv: 0,       // アドレナリン: 低HPほど移動速度ボーナス
     deathDefyLv: 0,        // 死の免除: 1回だけ瀕死から蘇生
     strikerLv: 0,          // ストライカー: ダッシュ中に敵にダメージ
-    vampLv: 0,             // 吸血: 敵撃破時に確率でHP回復（Cycle27）
     detonateLv: 0,         // 起爆: 敵撃破時に確率で爆発（Cycle28）
     luckyLv: 0,            // 幸運: 宝箱・回復オーブの当たりが増える（Cycle30）
     facing: { x: 1, y: 0 },// 向き（移動方向）
@@ -483,7 +482,8 @@ function enemyKinds(t) {
   const hpScale = (1 + t / 52 + (t * t) / 500000) * lateMul * loopBoost;   // 後半ほど加速度的に硬く（中盤の壁を緩和 Cycle37）
   const xpScale = 1 + t / 200;
   const dmgScale = (1 + t / 200 + (t * t) / 900000) * lateMul * loopBoost; // 序盤は控えめ→終盤きつく
-  const spdScale = (1 + t / 620) * lateMul * (1 + loops * 0.14);           // 速度も終盤は逃げ切れないほどに
+  const spdLate = 1 + (t / CLEAR_TIME) * 0.8;                              // 速度の終盤補正はHP/攻撃より控えめに
+  const spdScale = (1 + t / 700) * spdLate * (1 + loops * 0.14);           // 速度カーブは緩やか（囲まれても振り切れる余地を残す）
   const xs = (base) => Math.max(1, Math.ceil(base * xpScale));
   const ds = (base) => Math.round(base * dmgScale);
   const ss = (base) => base * spdScale;
@@ -730,8 +730,6 @@ function buildUpgradePool() {
   if (p.deathDefyLv < 1) pool.push({ id: 'deathdefy', name: '死の免除', desc: '一度だけHP1で致死ダメージを生き残る', icon: '⚰️', apply: () => { p.deathDefyLv = 1; floatText(p.x, p.y - 40, '死の免除！', '#ff4b4b'); } });
   // ストライカー: ダッシュ中に接触した敵にダメージ
   if (p.strikerLv < 2) pool.push({ id: 'striker', name: 'ストライカー', desc: 'ダッシュで敵に突撃するとダメージ（2段階）', icon: '🗡️', apply: () => { p.strikerLv++; floatText(p.x, p.y - 40, 'ストライカー！', '#ff8c00'); } });
-  // 吸血: 敵撃破時に確率でHP回復（Cycle27）
-  if (p.vampLv < 2) pool.push({ id: 'vamp', name: '吸血', desc: '敵を倒すと 35% で HP+1 回復（2段階）', icon: '🩸', apply: () => { p.vampLv++; floatText(p.x, p.y - 40, '吸血！', '#ff6aa0'); } });
   // 起爆: 倒した敵が確率で爆発し、周囲を巻き込んで連鎖（Cycle28）
   if (p.detonateLv < 2) pool.push({ id: 'detonate', name: '起爆', desc: '倒した敵が ' + (10 * (p.detonateLv + 1)) + '% で爆発（連鎖あり）', icon: '💥', apply: () => { p.detonateLv++; floatText(p.x, p.y - 40, '起爆！', '#ff9b3d'); } });
   // 幸運: 宝箱の中身と回復オーブのドロップ率が増える（Cycle30）
@@ -960,11 +958,6 @@ function killEnemy(e) {
     const orbChance = (0.035 + Math.max(0, 0.5 - hpRatio) * 0.10) * (1 + p2.luckyLv * 0.6); // 基礎率を引き上げ（Cycle38）
     if (Math.random() < orbChance) {
       game.healthOrbs.push({ x: e.x, y: e.y, r: 7, value: 15, vx: rand(-24, 24), vy: rand(-24, 24) });
-    }
-    // 吸血：敵撃破時に確率でHP回復（Cycle27）
-    if (p2.vampLv > 0 && p2.hp < p2.maxHp && Math.random() < 0.35) {
-      p2.hp = Math.min(p2.maxHp, p2.hp + p2.vampLv);
-      burst(p2.x, p2.y, '#ff6aa0', 3, 60);
     }
     // 起爆：倒した敵が確率で爆発。巻き込んだ敵も倒せば連鎖する（Cycle28）
     if (p2.detonateLv > 0 && Math.random() < 0.10 * p2.detonateLv) {
@@ -3257,7 +3250,6 @@ function drawResultStats() {
   if (p.berserkLv > 0) notes.push('🔥Berserk×' + p.berserkLv);
   if (p.deathDefyLv === 0 && p.deathDefied) notes.push('⚰蘇生済');
   if (p.strikerLv > 0) notes.push('🗡️Striker×' + p.strikerLv);
-  if (p.vampLv > 0) notes.push('🩸吸血×' + p.vampLv);
   if (p.detonateLv > 0) notes.push('💥起爆×' + p.detonateLv);
   if (p.luckyLv > 0) notes.push('🍀幸運×' + p.luckyLv);
   if (game.chestsOpened > 0) notes.push('🎁宝箱×' + game.chestsOpened);
