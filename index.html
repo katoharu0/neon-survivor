@@ -338,7 +338,9 @@ canvas.addEventListener('touchstart', e => {
   e.preventDefault();
 }, { passive: false });
 canvas.addEventListener('touchmove', e => {
-  if (state === 'playing' && stick.active) {
+  // 移動スティックの指は、レベルアップ画面などのメニュー中でも追従を続ける
+  //（移動を押しっぱなしのまま、もう片方の指でアイテム選択→そのまま移動継続できるように）
+  if (stick.active) {
     for (const t of e.changedTouches) {
       if (t.identifier !== stick.id) continue;
       const p = touchToCanvas(t);
@@ -347,8 +349,19 @@ canvas.addEventListener('touchmove', e => {
       if (d < STICK_DEAD) { stick.nx = 0; stick.ny = 0; stick.mag = 0; }
       else { stick.nx = dx / d; stick.ny = dy / d; stick.mag = Math.min(1, (d - STICK_DEAD) / (STICK_MAX - STICK_DEAD)); }
     }
-  } else if (state !== 'playing') {
-    const p = touchToCanvas(e.changedTouches[0]); pointer.x = p.x; pointer.y = p.y;
+  }
+  if (state !== 'playing') {
+    // メニュー中：移動用に押しっぱなしの指は無視し、それ以外の指だけをポインタ扱いにする
+    for (const t of e.changedTouches) {
+      if (stick.active && t.identifier === stick.id) continue;
+      const p = touchToCanvas(t); pointer.x = p.x; pointer.y = p.y;
+    }
+  } else if (!stick.active && e.changedTouches.length > 0) {
+    // カード選択に使った指をそのまま滑らせたら、その位置から移動スティックを開始
+    const t = e.changedTouches[0];
+    const p = touchToCanvas(t);
+    stick.active = true; stick.id = t.identifier;
+    stick.baseX = p.x; stick.baseY = p.y; stick.nx = 0; stick.ny = 0; stick.mag = 0;
   }
   e.preventDefault();
 }, { passive: false });
@@ -447,6 +460,7 @@ function resetGame(mode) {
     gems: [],
     mines: [],              // 設置された地雷
     shocks: [],             // 衝撃波リング（ノヴァ・爆発。見た目＋当たり）
+    bombs: [],              // 爆撃の予告付き爆弾（爆撃型ミニボス／ラスボス）
     bolts: [],              // 落雷の描画用ライン
     particles: [],
     texts: [],              // ダメージ数字などの浮き文字
@@ -510,7 +524,7 @@ function enemyKinds(t) {
     bomber:   { hp: 37 * hpScale,  speed: ss(74),  r: 18, dmg: ds(31), xp: xs(2), color: '#ff7b3d', shape: 'square', move: 'bomb' },
     orbiter:  { hp: 30 * hpScale,  speed: ss(120), r: 15, dmg: ds(14), xp: xs(2), color: '#8a7bff', shape: 'tri',    move: 'orbit', ranged: true }, // 距離を保って旋回しながら撃つ
     brute:    { hp: 190 * hpScale, speed: ss(52),  r: 29, dmg: ds(42), xp: xs(4), color: '#ff5c3d', shape: 'hex',    move: 'chase' },                // 鈍重だが一撃が重い
-    miniboss: { hp: 400 * hpScale, speed: ss(76),  r: 30, dmg: ds(30), xp: xs(28), color: '#4be0ff', shape: 'boss',  move: 'chase' },
+    miniboss: { hp: 520 * hpScale, speed: ss(76),  r: 30, dmg: ds(30), xp: xs(28), color: '#4be0ff', shape: 'boss',  move: 'chase' }, // HP1.3倍（ユーザー要望）
   };
 }
 
@@ -1304,6 +1318,18 @@ function update(dt) {
     }
   }
 
+  // --- 爆撃の爆弾（予告円）：導火線が切れたら爆発。範囲内のプレイヤーにダメージ ---
+  for (const b of g.bombs) {
+    b.t -= dt;
+    if (b.t <= 0) {
+      burst(b.x, b.y, '#ff7b3d', 16, 220);
+      // dmg:0 の衝撃波は敵に当たらない＝見た目だけの爆風リング
+      g.shocks.push({ x: b.x, y: b.y, r: 12, vr: 320, life: b.r / 320, maxR: b.r, dmg: 0, color: '#ff9b3d', hitSet: new Set() });
+      if (Math.hypot(p.x - b.x, p.y - b.y) < b.r + p.r * 0.4) hurtPlayer(b.dmg);
+      shake(5);
+    }
+  }
+
   // --- パーティクル・浮き文字 ---
   for (const pt of g.particles) { pt.x += pt.vx * dt; pt.y += pt.vy * dt; pt.vx *= 0.92; pt.vy *= 0.92; pt.life -= dt; }
   for (const tx of g.texts) { tx.y += tx.vy * dt; tx.vy *= 0.92; tx.life -= dt; }
@@ -1315,6 +1341,7 @@ function update(dt) {
   g.gems = g.gems.filter(x => !x.dead);
   g.mines = g.mines.filter(m => !m.dead && dist2(m.x, m.y, p.x, p.y) < 1100 * 1100);
   g.shocks = g.shocks.filter(s => s.life > 0);
+  g.bombs = g.bombs.filter(b => b.t > 0);
   g.bolts = g.bolts.filter(z => z.life > 0);
   g.particles = g.particles.filter(x => x.life > 0);
   g.texts = g.texts.filter(x => x.life > 0);
@@ -1470,17 +1497,20 @@ function updateSpawning(dt) {
 
   // ミニボス（ウェーブ境界で出現。種類をローテして固有攻撃を見せる）
   if (g.time >= g.miniBossAt && g.time < CLEAR_TIME) {
-    // 1匹目は弾幕型（spreader）から。瞬移型（blinker）は2匹目に登場（ユーザー要望）
-    const types = ['spreader', 'blinker', 'charger', 'summoner'];
+    // ローテはスキル入手ペースに合わせる（ユーザー要望）：
+    // 1匹目=弾幕型（まだダッシュ未入手→歩いて避けられるリングのみ）、2匹目=突進型（ダッシュ必須）、
+    // 3匹目=爆撃型（範囲外へ移動 or ダッシュ）、4匹目=瞬移型
+    const types = ['spreader', 'charger', 'bomber', 'blinker'];
     const bt = types[g.miniBossCount % types.length];
-    const names = { spreader: '弾幕型', charger: '突進型', summoner: '召喚型', blinker: '瞬移型' };
-    const bossColors = { spreader: '#00d4ff', charger: '#ff4444', summoner: '#cc44ff', blinker: '#ffcc00' };
+    const names = { spreader: '弾幕型', charger: '突進型', bomber: '爆撃型', blinker: '瞬移型' };
+    const bossColors = { spreader: '#00d4ff', charger: '#ff4444', bomber: '#ff9b3d', blinker: '#ffcc00' };
     const mb = spawnEnemy('miniboss', { bossType: bt });
     // プレイヤーレベルで補正（火力インフレに対抗）＋タイプ別カラー設定
     if (mb) {
       const mbLvScale = 1 + Math.max(0, p.level - 6) * 0.08;
       mb.hp = Math.round(mb.hp * mbLvScale); mb.maxHp = mb.hp;
       mb.color = bossColors[bt] || '#4be0ff';
+      if (bt === 'charger') { mb.r = 46; mb.speed *= 0.85; } // 突進型は大型・鈍足（ユーザー要望：サイズ大きめ）
     }
     g.miniBossCount++;
     g.miniBossAt += WAVE_LEN;
@@ -1503,18 +1533,18 @@ function spawnFinalBoss() {
   const ang = Math.random() * TAU, rad = 420;
   // プレイヤーのレベルが高いほどボスも強くなる（火力インフレ対策）
   const lvScale = 1 + Math.max(0, p.level - 8) * 0.09;
-  const hpBase = 13000 * lvScale; // ボスHP増強（ユーザー要望：もっと強く）
+  const hpBase = 16900 * lvScale; // ボスHP 1.3倍（ユーザー要望）
   const e = {
     kind: 'boss', boss: true, bossType: 'overlord',
     x: p.x + Math.cos(ang) * rad, y: p.y + Math.sin(ang) * rad,
     hp: hpBase, maxHp: hpBase,
-    speed: 84, r: 48, dmg: 45, xp: 2000, color: '#ff4be0',
+    speed: 84, r: 48, dmg: 90, xp: 2000, color: '#ff4be0', // 接触ダメも装甲込みで約50に
     shape: 'boss', move: 'chase', hitFlash: 0, fireTimer: 1.0, atkCd: 1.2, knock: { x: 0, y: 0 },
     slowT: 0, freezeT: 0, elite: false,
   };
   g.enemies.push(e);
   g.bossRef = e;
-  setBanner('!! FINAL BOSS !!', '弾幕・突進・召喚を操る支配者', '#ff4be0');
+  setBanner('!! FINAL BOSS !!', '弾幕・突進・爆撃・瞬移を操る支配者', '#ff4be0');
   floatText(p.x, p.y - 50, 'FINAL BOSS', '#ff4be0', true);
   Sound.boss(); shake(22);
 }
@@ -1560,45 +1590,49 @@ function updateBossBehavior(e, dt, dx, dy, d) {
     if (e.stompWarn <= 0) {
       // 予告終了→その座標に爆発
       const fake = { x: e.stompX, y: e.stompY, color: '#ff2200' };
-      enemyRing(fake, 24, 260, 38, '#ff2200');
+      enemyRing(fake, 24, 260, 60, '#ff2200');
       burst(e.stompX, e.stompY, '#ff4400', 24, 200);
-      // プレイヤーが範囲内にいたらダメージ
-      if (Math.hypot(g.player.x - e.stompX, g.player.y - e.stompY) < 90) hurtPlayer(50);
+      // プレイヤーが範囲内にいたらダメージ（装甲込みで約50〜100）
+      if (Math.hypot(g.player.x - e.stompX, g.player.y - e.stompY) < 90) hurtPlayer(100);
       shake(12);
     }
   }
   const bt = e.bossType;
   if (bt === 'spreader') {
+    // 1匹目のボス：ダッシュ未入手でも歩いて避けられる全方位リングのみ（包囲はやらない・ユーザー要望）
     if (e.atkCd <= 0 && d < 620) {
-      // 2回に1回は「包囲リング」：プレイヤーを囲む弾の輪が縮んでくる（スキルで脱出！）
-      if (e.cageNext) {
-        enemyCage(g.player.x, g.player.y, 22, 250, 105, 15, '#4be0ff');
-        floatText(g.player.x, g.player.y - 40, '⚠ 包囲!', '#4be0ff');
-        e.atkCd = 3.4;
-      } else {
-        enemyRing(e, 12, 205, 13, '#4be0ff');
-        e.atkCd = 2.6;
-      }
-      e.cageNext = !e.cageNext;
+      enemyRing(e, 12, 205, 28, '#4be0ff');
+      e.atkCd = 2.6;
     }
   } else if (bt === 'charger') {
-    // 予兆フェーズ：ダッシュ前に0.4秒間赤くフラッシュして警告
+    // 長いタメ→発射の瞬間に狙いを定めて長距離突進（プレイヤーを通り過ぎるまで走る）
+    // 発動間隔8秒＝スキルCD（最大6秒）より長いので、毎回ダッシュで確実にかわせる設計
     if (e.chargeWarn > 0) {
       e.chargeWarn -= dt;
       e.hitFlash = 0.06; // 赤くする（hitFlashを流用）
-      if (e.chargeWarn <= 0) { // 予兆終了→実際のダッシュ開始
-        e.chargeT = 0.55; e.cvx = e._cwdx * 470; e.cvy = e._cwdy * 470;
-        burst(e.x, e.y, '#ff3030', 14, 180);
+      if (e.chargeWarn <= 0) { // 予兆終了→この瞬間のプレイヤー位置に照準して突進（歩き回避を許さない）
+        e.chargeT = 0.85; e.cvx = dx * 760; e.cvy = dy * 760;
+        burst(e.x, e.y, '#ff3030', 18, 220);
+        shake(6);
       }
     } else if (e.chargeT > 0) { e.chargeT -= dt; e.x += e.cvx * dt; e.y += e.cvy * dt; }
-    else if (e.atkCd <= 0 && d < 560) {
-      // 予兆開始（0.4秒後に実際にダッシュ）
-      e.chargeWarn = 0.4; e._cwdx = dx; e._cwdy = dy; e.atkCd = 2.2;
+    else if (e.atkCd <= 0 && d < 620) {
+      // 予兆開始（0.9秒タメてから突進）
+      e.chargeWarn = 0.9; e.atkCd = 8.0;
       floatText(e.x, e.y - e.r, '⚠ 突進!', '#ff4444');
       shake(4);
     }
-  } else if (bt === 'summoner') {
-    if (e.atkCd <= 0) { for (let k = 0; k < 3; k++) spawnEnemy('swift', { x: e.x + rand(-30, 30), y: e.y + rand(-30, 30) }); e.atkCd = 3.2; floatText(e.x, e.y - e.r, '召喚!', '#c78bff'); }
+  } else if (bt === 'bomber') {
+    // 爆撃型：プレイヤー周辺の複数地点に予告円を出し、時間差で爆弾の雨を降らせる（円の外へ移動して回避）
+    if (e.atkCd <= 0) {
+      for (let k = 0; k < 9; k++) {
+        const ang = Math.random() * TAU, rr = Math.sqrt(Math.random()) * 190;
+        const fuse = 0.9 + k * 0.13;
+        g.bombs.push({ x: g.player.x + Math.cos(ang) * rr, y: g.player.y + Math.sin(ang) * rr, t: fuse, max: fuse, r: 78, dmg: 55 });
+      }
+      floatText(e.x, e.y - e.r, '💣 爆撃!', '#ff9b3d');
+      e.atkCd = 4.5;
+    }
   } else if (bt === 'blinker') {
     // 予告フェーズ：ワープ先に0.7秒間警告マーカーを表示してから実際に移動
     if (e.warpTimer > 0) {
@@ -1608,7 +1642,7 @@ function updateBossBehavior(e, dt, dx, dy, d) {
         burst(e.x, e.y, '#c78bff', 16, 220);
         e.x = e.warpTarget.x; e.y = e.warpTarget.y;
         burst(e.x, e.y, '#c78bff', 22, 260);
-        enemyRing(e, 18, 235, 16, '#c78bff');
+        enemyRing(e, 18, 235, 32, '#c78bff');
         floatText(e.x, e.y - e.r, 'ブリンク!', '#c78bff');
         e.warpTarget = null;
         e.atkCd = 2.6;
@@ -1621,24 +1655,47 @@ function updateBossBehavior(e, dt, dx, dy, d) {
       floatText(e.warpTarget.x, e.warpTarget.y - 20, '⚠', '#ffff00');
     }
   } else if (bt === 'overlord') {
-    // 複合：弾幕・全方位・召喚・突進をランダムに織り交ぜる
+    // 融合ボス：ミニボス4種の技（弾幕・長距離突進・爆撃・瞬移）＋包囲弾幕をすべて使う（ユーザー要望）
     // 残りHP40%未満で「激昂」：攻撃間隔が短くなり弾幕が激しくなる（第2形態的な山場）
     const rage = e.hp < e.maxHp * 0.4;
     if (rage && !e.raged) { e.raged = true; setBanner('ENRAGED!', '支配者が激昂した', '#ff4be0'); shake(16); }
     const cdK = rage ? 0.62 : 1;
+    // 長距離突進（突進型ゆずり）：予兆のあと発射の瞬間に照準
+    if ((e.chargeWarn || 0) > 0) {
+      e.chargeWarn -= dt;
+      e.hitFlash = 0.06;
+      if (e.chargeWarn <= 0) {
+        const sp = rage ? 880 : 780;
+        e.chargeT = 0.8; e.cvx = dx * sp; e.cvy = dy * sp;
+        burst(e.x, e.y, '#ff3030', 20, 240); shake(8);
+      }
+    }
     if (e.chargeT > 0) { e.chargeT -= dt; e.x += e.cvx * dt; e.y += e.cvy * dt; }
-    if (e.atkCd <= 0) {
+    // 瞬移（瞬移型ゆずり）：予告→ワープして全方位弾
+    if ((e.warpTimer || 0) > 0) {
+      e.warpTimer -= dt;
+      if (e.warpTimer <= 0) {
+        burst(e.x, e.y, '#ff4be0', 18, 240);
+        e.x = e.warpTarget.x; e.y = e.warpTarget.y;
+        burst(e.x, e.y, '#ff4be0', 24, 280);
+        enemyRing(e, rage ? 30 : 24, 250, 80, '#ff4be0');
+        floatText(e.x, e.y - e.r, 'ブリンク!', '#ff4be0');
+        e.warpTarget = null;
+      }
+    }
+    // 突進・瞬移の予兆中は次の攻撃を選ばない（技が重ならないように）
+    if (e.atkCd <= 0 && (e.chargeWarn || 0) <= 0 && (e.warpTimer || 0) <= 0) {
       const r = Math.random();
-      if (r < 0.26) {
+      if (r < 0.16) {
         // 扇形弾（プレイヤー追尾・横避け必須）
         const base = Math.atan2(dy, dx); const arc = rage ? 6 : 4;
-        for (let i = -arc; i <= arc; i++) { const a = base + i * 0.18; g.enemyBullets.push({ x: e.x, y: e.y, vx: Math.cos(a) * 280, vy: Math.sin(a) * 280, r: 8, dmg: 30, life: 4, color: '#ff5ea0' }); }
+        for (let i = -arc; i <= arc; i++) { const a = base + i * 0.18; g.enemyBullets.push({ x: e.x, y: e.y, vx: Math.cos(a) * 280, vy: Math.sin(a) * 280, r: 8, dmg: 85, life: 4, color: '#ff5ea0' }); }
         e.atkCd = 1.3 * cdK;
-      } else if (r < 0.46) {
+      } else if (r < 0.32) {
         // 全方位リング（回避必須、激昂時は2連続）
-        enemyRing(e, rage ? 36 : 26, 220, 30, '#ff5ea0'); e.atkCd = 1.7 * cdK;
-        if (rage) setTimeout(() => { if (!e.dead && e.hp > 0) enemyRing(e, 20, 180, 24, '#ff4be0'); }, 600);
-      } else if (r < 0.60) {
+        enemyRing(e, rage ? 36 : 26, 220, 85, '#ff5ea0'); e.atkCd = 1.7 * cdK;
+        if (rage) setTimeout(() => { if (!e.dead && e.hp > 0) enemyRing(e, 20, 180, 70, '#ff4be0'); }, 600);
+      } else if (r < 0.44) {
         // スパイラル弾（動き続けないと必ず当たる）
         const spirals = rage ? 3 : 2;
         for (let s2 = 0; s2 < spirals; s2++) {
@@ -1646,24 +1703,35 @@ function updateBossBehavior(e, dt, dx, dy, d) {
           for (let si = 0; si < 7; si++) {
             const a = sBase + si * 0.28;
             const spd = 160 + si * 22;
-            g.enemyBullets.push({ x: e.x, y: e.y, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, r: 7, dmg: 24, life: 5.5, color: '#ff8ab3' });
+            g.enemyBullets.push({ x: e.x, y: e.y, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, r: 7, dmg: 70, life: 5.5, color: '#ff8ab3' });
           }
         }
         floatText(e.x, e.y - e.r, 'スパイラル!', '#ff4be0'); e.atkCd = rage ? 1.4 * cdK : 2.0 * cdK;
-      } else if (r < 0.72) {
-        // 包囲リング：プレイヤーの周囲に弾の輪が出現し縮んでくる（ダッシュ/テレポートで脱出前提）
-        enemyCage(g.player.x, g.player.y, rage ? 30 : 24, 260, rage ? 130 : 110, 26, '#ff4be0');
+      } else if (r < 0.58) {
+        // 囲い込み弾幕：プレイヤーの周囲に弾の輪が出現し縮んでくる（ダッシュ/テレポートで脱出前提）
+        enemyCage(g.player.x, g.player.y, rage ? 30 : 24, 260, rage ? 130 : 110, 80, '#ff4be0');
         floatText(g.player.x, g.player.y - 40, '⚠ 包囲!', '#ff4be0');
         e.atkCd = 2.4 * cdK;
-      } else if (r < 0.82) {
-        // 召喚（激昂時はより強い敵）
-        const sk = rage ? (Math.random() < 0.5 ? 'dasher' : 'weaver') : 'grunt';
-        for (let k = 0; k < (rage ? 5 : 4); k++) spawnEnemy(sk, { x: e.x + rand(-50, 50), y: e.y + rand(-50, 50) });
-        floatText(e.x, e.y - e.r, '召喚!', '#c78bff'); e.atkCd = 2.2 * cdK;
-      } else if (r < 0.88) {
-        // 突進（激昂時は超高速）
-        const sp = rage ? 680 : 520; e.chargeT = 0.5; e.cvx = dx * sp; e.cvy = dy * sp;
-        floatText(e.x, e.y - e.r, '突進!', '#ff6b6b'); e.atkCd = 1.8 * cdK;
+      } else if (r < 0.72) {
+        // 爆撃（爆撃型ゆずり）：プレイヤー周辺に爆弾の雨
+        const nb = rage ? 13 : 10;
+        for (let k = 0; k < nb; k++) {
+          const ang2 = Math.random() * TAU, rr2 = Math.sqrt(Math.random()) * 210;
+          const fuse = 0.85 + k * 0.11;
+          g.bombs.push({ x: g.player.x + Math.cos(ang2) * rr2, y: g.player.y + Math.sin(ang2) * rr2, t: fuse, max: fuse, r: 80, dmg: 65 });
+        }
+        floatText(e.x, e.y - e.r, '💣 爆撃!', '#ff9b3d'); e.atkCd = 2.8 * cdK;
+      } else if (r < 0.84) {
+        // 長距離突進の予兆開始（0.7秒タメ→照準して発射）
+        e.chargeWarn = 0.7;
+        floatText(e.x, e.y - e.r, '⚠ 突進!', '#ff6b6b'); e.atkCd = 3.0 * cdK;
+      } else if (r < 0.93) {
+        // 瞬移の予告開始（0.7秒後にプレイヤーの至近へワープして弾幕）
+        const ang3 = Math.random() * TAU;
+        e.warpTarget = { x: g.player.x + Math.cos(ang3) * 150, y: g.player.y + Math.sin(ang3) * 150 };
+        e.warpTimer = 0.7;
+        floatText(e.warpTarget.x, e.warpTarget.y - 20, '⚠', '#ffff00');
+        e.atkCd = 2.2 * cdK;
       } else {
         // ストンプ：プレイヤーの現在地に0.8秒後に爆発（赤予告円あり）
         e.stompX = g.player.x; e.stompY = g.player.y; e.stompWarn = 0.8;
@@ -1921,6 +1989,7 @@ function continueRun() {
   p.invuln = 3;        // 再開直後の即死防止（3秒無敵）
   p.dashCd = 0;
   g.enemyBullets.length = 0; // 周囲の敵弾を消す
+  g.bombs.length = 0;        // 設置済みの爆弾も消す（復帰直後の理不尽な爆死防止）
   // 近くの敵を外へ押し出して仕切り直す
   for (const e of g.enemies) {
     if (e.dead || e.boss) continue;
@@ -1974,6 +2043,7 @@ function render() {
   if (game) drawArenaBorder();
 
   if (game) {
+    drawBombs();
     drawShocks();
     drawGems();
     drawMines();
@@ -2288,8 +2358,8 @@ function drawBoss(e, s) {
     ctx.restore();
   }
 
-  // blinker ワープ予告マーカー（黄色の点滅円＋クロスヘア）
-  if (bt === 'blinker' && e.warpTarget && e.warpTimer > 0) {
+  // ワープ予告マーカー（黄色の点滅円＋クロスヘア。blinker とラスボスの瞬移で共用）
+  if ((bt === 'blinker' || bt === 'overlord') && e.warpTarget && e.warpTimer > 0) {
     const wt = worldToScreen(e.warpTarget.x, e.warpTarget.y);
     const pulse = 0.4 + 0.6 * Math.abs(Math.sin(t * 16));
     ctx.save();
@@ -2354,8 +2424,8 @@ function drawBoss(e, s) {
     ctx.fillStyle = flash ? '#fff' : '#ffb0b0';
     ctx.beginPath(); ctx.arc(0, 0, e.r * 0.38, 0, TAU); ctx.fill();
 
-  } else if (bt === 'summoner') {
-    // 召喚型：六芒星＋回転ルーン、紫
+  } else if (bt === 'bomber') {
+    // 爆撃型：六芒星＋回転ルーン、オレンジ
     ctx.shadowColor = e.color; ctx.shadowBlur = 34;
     ctx.rotate(t * 0.55);
     ctx.fillStyle = flash ? '#fff' : e.color;
@@ -2369,11 +2439,11 @@ function drawBoss(e, s) {
       ctx.closePath(); ctx.fill();
     }
     ctx.rotate(-t * 1.2);
-    ctx.strokeStyle = flash ? '#fff' : 'rgba(200,120,255,0.5)'; ctx.lineWidth = 2;
+    ctx.strokeStyle = flash ? '#fff' : 'rgba(255,175,90,0.5)'; ctx.lineWidth = 2;
     ctx.setLineDash([7, 7]);
     ctx.beginPath(); ctx.arc(0, 0, e.r * 1.55, 0, TAU); ctx.stroke();
     ctx.setLineDash([]);
-    ctx.fillStyle = flash ? '#fff' : '#e8b0ff';
+    ctx.fillStyle = flash ? '#fff' : '#ffd9a8';
     ctx.beginPath(); ctx.arc(0, 0, e.r * 0.42, 0, TAU); ctx.fill();
 
   } else if (bt === 'blinker') {
@@ -2437,7 +2507,7 @@ function drawBoss(e, s) {
 
   // 種類ラベル（ミニボスのみ）
   if (e.kind === 'miniboss' && e.bossType) {
-    const labels = { spreader: '弾幕型', charger: '突進型', summoner: '召喚型', blinker: '瞬移型' };
+    const labels = { spreader: '弾幕型', charger: '突進型', bomber: '爆撃型', blinker: '瞬移型' };
     ctx.fillStyle = e.color; ctx.shadowColor = e.color; ctx.shadowBlur = 8;
     ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center';
     ctx.fillText(labels[e.bossType] || '', s.x, s.y - e.r - 24);
@@ -2447,6 +2517,24 @@ function drawBoss(e, s) {
   const w = e.r * 2.8, hpw = w * clamp(e.hp / e.maxHp, 0, 1);
   ctx.fillStyle = 'rgba(0,0,0,.65)'; ctx.fillRect(s.x - w / 2, s.y - e.r - 18, w, 6);
   ctx.fillStyle = e.boss ? '#ff4be0' : e.color; ctx.fillRect(s.x - w / 2, s.y - e.r - 18, hpw, 6);
+}
+
+function drawBombs() {
+  // 爆撃の予告円：オレンジの点滅リング＋内側の導火線ゲージ（塗りが広がりきったら爆発）
+  for (const b of game.bombs) {
+    const s = worldToScreen(b.x, b.y);
+    const prog = 1 - b.t / b.max;
+    const pulse = 0.35 + 0.45 * Math.abs(Math.sin(game.time * 13 + b.max * 7));
+    ctx.save();
+    ctx.globalAlpha = pulse;
+    ctx.strokeStyle = '#ff9b3d'; ctx.lineWidth = 3; ctx.shadowColor = '#ff7b00'; ctx.shadowBlur = 14;
+    ctx.beginPath(); ctx.arc(s.x, s.y, b.r, 0, TAU); ctx.stroke();
+    ctx.globalAlpha = pulse * 0.4;
+    ctx.fillStyle = '#ff5500';
+    ctx.beginPath(); ctx.arc(s.x, s.y, b.r * prog, 0, TAU); ctx.fill();
+    ctx.restore();
+  }
+  ctx.globalAlpha = 1;
 }
 
 function drawShocks() {
