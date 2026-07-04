@@ -268,7 +268,7 @@ function tryDash() {
   const p = game.player;
   if (!p.activeSkill) return; // 宝箱でスキルを手に入れるまでは何も起きない
   if (p.dashCd > 0) return;
-  p.dashCd = p.quickDash ? 1.5 : 3;
+  p.dashCd = 6 * p.skillCdMul; // 基本6秒。宝箱の強化で3秒→1.5秒と短くなる
   if (p.activeSkill === 'blink') {
     // ブリンク：向いている方向へ150px瞬間移動（短い無敵つき）
     burst(p.x, p.y, '#c69dff', 12, 170);
@@ -278,7 +278,7 @@ function tryDash() {
     Sound.dash();
     burst(p.x, p.y, '#c69dff', 14, 190);
   } else {
-    // フェイズダッシュ：0.18秒無敵で駆け抜ける
+    // フェイズダッシュ：0.18秒だけ移動速度×3で加速（無敵は宝箱2個目の強化から）
     p.dashing = 0.18;
     // ダッシュの発動感（Cycle33）：風切り音＋足元に白い破裂
     Sound.dash();
@@ -398,13 +398,15 @@ function newPlayer() {
     barrierActive: false,  // バリアアップグレードを取得済みか
     barrierCharge: 0,      // バリアの充電量（20秒で1発分）
     activeSkill: null,     // アクティブスキル（'dash' | 'blink'）。宝箱で入手するまで null
-    dashCd: 0,             // スキルのクールダウン（3秒）
-    dashing: 0,            // ダッシュ中の残り時間（0.18秒、この間無敵）
+    skillLv: 0,            // 宝箱で進んだスキル強化の段階（0〜5）
+    skillCdMul: 1,         // スキルCD倍率（基本6秒。強化で 0.5 → 0.25 に）
+    dashInvuln: false,     // ダッシュ中に無敵になるか（宝箱2個目の強化で true）
+    dashCd: 0,             // スキルのクールダウン
+    dashing: 0,            // ダッシュ中の残り時間（0.18秒）
     hurtFlash: 0,          // 被弾の赤フラッシュ残り時間（無敵時間とは別管理）
     speedBuffT: 0,         // ニトロブースト（移動速度2倍）の残り秒数
     rushTimer: 0,          // ラッシュ発動中の残り秒数
     berserkLv: 0,          // バーサーク取得回数（HP低下時の火力ボーナス）
-    quickDash: false,      // スキルチャージャー取得済みか（CD 3s→1.5s）
     adrenalineLv: 0,       // アドレナリン: 低HPほど移動速度ボーナス
     deathDefyLv: 0,        // 死の免除: 1回だけ瀕死から蘇生
     strikerLv: 0,          // ストライカー: ダッシュ中に敵にダメージ
@@ -817,42 +819,26 @@ function rerollChoices() {
   Sound.pick();
 }
 
-// 宝箱の中身（固有アイテム）。最初の宝箱はアクティブスキル（ダッシュかブリンク）が確定
-const CHEST_ITEMS = {
-  dash:    { icon: '⚡', name: 'フェイズダッシュ', desc: 'Space / ⚡ボタンで発動。0.18秒 無敵で一気に駆け抜ける（クールダウン3秒）', apply(p) { p.activeSkill = 'dash'; } },
-  blink:   { icon: '🌀', name: 'ブリンク', desc: 'Space / 🌀ボタンで発動。向いている方向へ瞬間移動する（クールダウン3秒）', apply(p) { p.activeSkill = 'blink'; } },
-  barrier: { icon: '🛡️', name: 'バリアコア', desc: '6秒間 無敵になる！', apply(p) { p.invuln = Math.max(p.invuln, 6); } },
-  nitro:   { icon: '💨', name: 'ニトロブースト', desc: '6秒間 移動速度が2倍！', apply(p) { p.speedBuffT = 6; } },
-  nova:    { icon: '💥', name: 'ネオンノヴァ', desc: '周囲の敵に大ダメージ＋吹き飛ばし！', apply(p) { novaBlast(p); } },
-  freeze:  { icon: '⏱️', name: 'タイムフリーズ', desc: '敵と敵弾が4秒間 停止する！', apply(p) { game.freezeT = 4; } },
-  charger: { icon: '🔋', name: 'スキルチャージャー', desc: 'スキル（ダッシュ/ブリンク）のクールダウンが半分（1.5秒）になる', apply(p) { p.quickDash = true; } },
-};
+// 宝箱のスキル強化ラダー：開けるたびに右下ボタンのスキルが決まった順で1段ずつ進化していく
+const SKILL_UPGRADES = [
+  { icon: '⚡', name: 'フェイズダッシュ', desc: 'Space / ⚡ボタンで発動。向いている方向へ短距離を一気に加速する（クールダウン6秒）', apply(p) { p.activeSkill = 'dash'; } },
+  { icon: '🛡️', name: 'ゴーストダッシュ', desc: 'ダッシュ中が無敵に！敵や弾をすり抜けて駆け抜けられる', apply(p) { p.dashInvuln = true; } },
+  { icon: '🔋', name: 'スキルチャージャー', desc: 'スキルのクールダウンが半分（6秒→3秒）になった！', apply(p) { p.skillCdMul *= 0.5; } },
+  { icon: '🌀', name: 'ブリンク', desc: 'ダッシュが短距離テレポートに進化！向いている方向へ瞬間移動する（無敵つき）', apply(p) { p.activeSkill = 'blink'; } },
+  { icon: '💠', name: 'オーバーチャージ', desc: 'クールダウンがさらに半分（3秒→1.5秒）に！どんどん使える', apply(p) { p.skillCdMul *= 0.5; } },
+];
+// 6個目以降の宝箱の中身（スキルが最大まで進化した後）
+const CHEST_BONUS = { icon: '💖', name: 'フルリペア', desc: 'HPが全回復した！', apply(p) { p.hp = p.maxHp; } };
 
-// ネオンノヴァ：プレイヤー周囲の敵へ大ダメージ＋吹き飛ばし（宝箱アイテム）
-function novaBlast(p) {
-  makeShock(p.x, p.y, 300, 0, '#ff4be0');
-  for (const e of game.enemies) {
-    if (e.dead) continue;
-    const d = Math.hypot(e.x - p.x, e.y - p.y);
-    if (d < 300) {
-      const nx = (e.x - p.x) / (d || 1), ny = (e.y - p.y) / (d || 1);
-      damageEnemy(e, 250, nx * 400, ny * 400, false);
-    }
-  }
-  Sound.boom();
-}
-
-// 宝箱を開ける：固有アイテムが1個入っている。最初の1個はアクティブスキル確定
+// 宝箱を開ける：スキル強化が順番に1段ずつ手に入る（全5段。以降は全回復）
 function openChest(ch) {
   const p = game.player;
   let item;
-  if (!p.activeSkill) {
-    // 初回はダッシュかブリンクのどちらかが必ず入っている
-    item = Math.random() < 0.5 ? CHEST_ITEMS.dash : CHEST_ITEMS.blink;
+  if (p.skillLv < SKILL_UPGRADES.length) {
+    item = SKILL_UPGRADES[p.skillLv];
+    p.skillLv++;
   } else {
-    const keys = ['barrier', 'nitro', 'nova', 'freeze'];
-    if (!p.quickDash) keys.push('charger'); // チャージャーは1回だけ
-    item = CHEST_ITEMS[keys[(Math.random() * keys.length) | 0]];
+    item = CHEST_BONUS;
   }
   item.apply(p);
   p.hp = Math.min(p.maxHp, p.hp + 15); // おまけの回復
@@ -1126,12 +1112,12 @@ function update(dt) {
   for (const pt of g.trail) pt.life -= dt;
   g.trail = g.trail.filter(pt => pt.life > 0);
 
-  // ダッシュ中は移動速度×3で前進、無敵（Cycle5）
+  // ダッシュ中は移動速度×3で前進（無敵は宝箱2個目の強化「ゴーストダッシュ」から）
   if (p.dashing > 0) {
     p.dashing -= dt;
     p.x += p.facing.x * p.speed * 3 * dt;
     p.y += p.facing.y * p.speed * 3 * dt;
-    p.invuln = Math.max(p.invuln, p.dashing);
+    if (p.dashInvuln) p.invuln = Math.max(p.invuln, p.dashing);
     // ストライカー: ダッシュ中に敵に接触するとダメージ
     if (p.strikerLv > 0) {
       for (const e of g.enemies) {
@@ -1484,8 +1470,8 @@ function updateSpawning(dt) {
 
   // ミニボス（ウェーブ境界で出現。種類をローテして固有攻撃を見せる）
   if (g.time >= g.miniBossAt && g.time < CLEAR_TIME) {
-    // 黄色い瞬移型（blinker）を先頭に：最初のミニボスから登場する（ユーザー要望）
-    const types = ['blinker', 'spreader', 'charger', 'summoner'];
+    // 1匹目は弾幕型（spreader）から。瞬移型（blinker）は2匹目に登場（ユーザー要望）
+    const types = ['spreader', 'blinker', 'charger', 'summoner'];
     const bt = types[g.miniBossCount % types.length];
     const names = { spreader: '弾幕型', charger: '突進型', summoner: '召喚型', blinker: '瞬移型' };
     const bossColors = { spreader: '#00d4ff', charger: '#ff4444', summoner: '#cc44ff', blinker: '#ffcc00' };
@@ -1522,7 +1508,7 @@ function spawnFinalBoss() {
     kind: 'boss', boss: true, bossType: 'overlord',
     x: p.x + Math.cos(ang) * rad, y: p.y + Math.sin(ang) * rad,
     hp: hpBase, maxHp: hpBase,
-    speed: 84, r: 48, dmg: 32, xp: 2000, color: '#ff4be0',
+    speed: 84, r: 48, dmg: 45, xp: 2000, color: '#ff4be0',
     shape: 'boss', move: 'chase', hitFlash: 0, fireTimer: 1.0, atkCd: 1.2, knock: { x: 0, y: 0 },
     slowT: 0, freezeT: 0, elite: false,
   };
@@ -1551,6 +1537,19 @@ function enemyRing(e, n, speed, dmg, color) {
   }
 }
 
+// 包囲リング：プレイヤーを取り囲む弾の輪が縮んでくる（スキルのダッシュ/テレポートで抜けるのが前提の攻撃）
+function enemyCage(px, py, n, radius, speed, dmg, color) {
+  const base = Math.random() * TAU;
+  for (let i = 0; i < n; i++) {
+    const a = base + TAU / n * i;
+    game.enemyBullets.push({
+      x: px + Math.cos(a) * radius, y: py + Math.sin(a) * radius,
+      vx: -Math.cos(a) * speed, vy: -Math.sin(a) * speed,
+      r: 8, dmg, life: (radius * 2) / speed, color,
+    });
+  }
+}
+
 // ボス・ミニボスの固有攻撃
 function updateBossBehavior(e, dt, dx, dy, d) {
   const g = game;
@@ -1561,16 +1560,27 @@ function updateBossBehavior(e, dt, dx, dy, d) {
     if (e.stompWarn <= 0) {
       // 予告終了→その座標に爆発
       const fake = { x: e.stompX, y: e.stompY, color: '#ff2200' };
-      enemyRing(fake, 24, 260, 28, '#ff2200');
+      enemyRing(fake, 24, 260, 38, '#ff2200');
       burst(e.stompX, e.stompY, '#ff4400', 24, 200);
       // プレイヤーが範囲内にいたらダメージ
-      if (Math.hypot(g.player.x - e.stompX, g.player.y - e.stompY) < 90) hurtPlayer(35);
+      if (Math.hypot(g.player.x - e.stompX, g.player.y - e.stompY) < 90) hurtPlayer(50);
       shake(12);
     }
   }
   const bt = e.bossType;
   if (bt === 'spreader') {
-    if (e.atkCd <= 0 && d < 620) { enemyRing(e, 12, 205, 13, '#4be0ff'); e.atkCd = 2.6; }
+    if (e.atkCd <= 0 && d < 620) {
+      // 2回に1回は「包囲リング」：プレイヤーを囲む弾の輪が縮んでくる（スキルで脱出！）
+      if (e.cageNext) {
+        enemyCage(g.player.x, g.player.y, 22, 250, 105, 15, '#4be0ff');
+        floatText(g.player.x, g.player.y - 40, '⚠ 包囲!', '#4be0ff');
+        e.atkCd = 3.4;
+      } else {
+        enemyRing(e, 12, 205, 13, '#4be0ff');
+        e.atkCd = 2.6;
+      }
+      e.cageNext = !e.cageNext;
+    }
   } else if (bt === 'charger') {
     // 予兆フェーズ：ダッシュ前に0.4秒間赤くフラッシュして警告
     if (e.chargeWarn > 0) {
@@ -1619,16 +1629,16 @@ function updateBossBehavior(e, dt, dx, dy, d) {
     if (e.chargeT > 0) { e.chargeT -= dt; e.x += e.cvx * dt; e.y += e.cvy * dt; }
     if (e.atkCd <= 0) {
       const r = Math.random();
-      if (r < 0.30) {
+      if (r < 0.26) {
         // 扇形弾（プレイヤー追尾・横避け必須）
         const base = Math.atan2(dy, dx); const arc = rage ? 6 : 4;
-        for (let i = -arc; i <= arc; i++) { const a = base + i * 0.18; g.enemyBullets.push({ x: e.x, y: e.y, vx: Math.cos(a) * 280, vy: Math.sin(a) * 280, r: 8, dmg: 20, life: 4, color: '#ff5ea0' }); }
+        for (let i = -arc; i <= arc; i++) { const a = base + i * 0.18; g.enemyBullets.push({ x: e.x, y: e.y, vx: Math.cos(a) * 280, vy: Math.sin(a) * 280, r: 8, dmg: 30, life: 4, color: '#ff5ea0' }); }
         e.atkCd = 1.3 * cdK;
-      } else if (r < 0.52) {
+      } else if (r < 0.46) {
         // 全方位リング（回避必須、激昂時は2連続）
-        enemyRing(e, rage ? 36 : 26, 220, 20, '#ff5ea0'); e.atkCd = 1.7 * cdK;
-        if (rage) setTimeout(() => { if (!e.dead && e.hp > 0) enemyRing(e, 20, 180, 16, '#ff4be0'); }, 600);
-      } else if (r < 0.68) {
+        enemyRing(e, rage ? 36 : 26, 220, 30, '#ff5ea0'); e.atkCd = 1.7 * cdK;
+        if (rage) setTimeout(() => { if (!e.dead && e.hp > 0) enemyRing(e, 20, 180, 24, '#ff4be0'); }, 600);
+      } else if (r < 0.60) {
         // スパイラル弾（動き続けないと必ず当たる）
         const spirals = rage ? 3 : 2;
         for (let s2 = 0; s2 < spirals; s2++) {
@@ -1636,10 +1646,15 @@ function updateBossBehavior(e, dt, dx, dy, d) {
           for (let si = 0; si < 7; si++) {
             const a = sBase + si * 0.28;
             const spd = 160 + si * 22;
-            g.enemyBullets.push({ x: e.x, y: e.y, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, r: 7, dmg: 16, life: 5.5, color: '#ff8ab3' });
+            g.enemyBullets.push({ x: e.x, y: e.y, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, r: 7, dmg: 24, life: 5.5, color: '#ff8ab3' });
           }
         }
         floatText(e.x, e.y - e.r, 'スパイラル!', '#ff4be0'); e.atkCd = rage ? 1.4 * cdK : 2.0 * cdK;
+      } else if (r < 0.72) {
+        // 包囲リング：プレイヤーの周囲に弾の輪が出現し縮んでくる（ダッシュ/テレポートで脱出前提）
+        enemyCage(g.player.x, g.player.y, rage ? 30 : 24, 260, rage ? 130 : 110, 26, '#ff4be0');
+        floatText(g.player.x, g.player.y - 40, '⚠ 包囲!', '#ff4be0');
+        e.atkCd = 2.4 * cdK;
       } else if (r < 0.82) {
         // 召喚（激昂時はより強い敵）
         const sk = rage ? (Math.random() < 0.5 ? 'dasher' : 'weaver') : 'grunt';
@@ -2627,11 +2642,11 @@ function drawHUD() {
 
   // スキルCDインジケーター（XPバー下の細いバー。宝箱でスキル入手後のみ表示）
   if (p.activeSkill) {
-    const dashMax = p.quickDash ? 1.5 : 3;
+    const dashMax = 6 * p.skillCdMul;
     const dashReady = p.dashCd <= 0;
     const dashRatio = dashReady ? 1 : clamp(1 - p.dashCd / dashMax, 0, 1);
     const skIcon = p.activeSkill === 'blink' ? '🌀' : '⚡';
-    const skName = p.activeSkill === 'blink' ? 'BLINK' : 'DASH';
+    const skName = (p.activeSkill === 'blink' ? 'BLINK' : 'DASH') + ' Lv' + p.skillLv;
     ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillRect(0, 43, 100, 4);
     ctx.fillStyle = dashReady ? '#4be0ff' : '#2a7090';
     if (dashReady) { ctx.shadowColor = '#4be0ff'; ctx.shadowBlur = 6; }
@@ -2919,7 +2934,7 @@ function drawTouchControls() {
   const pl = game.player;
   if (pl.activeSkill) {
     const db = mobBtn.dash;
-    const dashMaxT = pl.quickDash ? 1.5 : 3;
+    const dashMaxT = 6 * pl.skillCdMul;
     const dashOK = pl.dashCd <= 0;
     ctx.beginPath(); ctx.arc(db.x, db.y, db.r, 0, TAU);
     ctx.fillStyle = dashOK ? 'rgba(18,58,80,.75)' : 'rgba(10,18,34,.6)'; ctx.fill();
@@ -2935,7 +2950,11 @@ function drawTouchControls() {
     }
     ctx.fillStyle = dashOK ? '#cffcff' : 'rgba(190,220,255,.45)';
     ctx.font = 'bold 32px sans-serif'; // ボタン拡大に合わせてアイコンも大きく（ユーザー要望）
-    ctx.fillText(pl.activeSkill === 'blink' ? '🌀' : '⚡', db.x, db.y + 1);
+    ctx.fillText(pl.activeSkill === 'blink' ? '🌀' : '⚡', db.x, db.y - 4);
+    // スキル段階（宝箱で進化した回数）をボタン下部に小さく表示
+    ctx.font = 'bold 12px sans-serif';
+    ctx.fillStyle = dashOK ? '#8adfff' : 'rgba(140,190,230,.5)';
+    ctx.fillText('Lv' + pl.skillLv, db.x, db.y + 26);
   }
   ctx.textBaseline = 'alphabetic';
   ctx.restore();
@@ -2969,12 +2988,12 @@ function drawTitle() {
     ctx.fillText('画面に指で触れるとスティックが出ます。動かすだけ（攻撃は自動）。', W / 2, H / 2 - 38);
     ctx.fillText('敵を倒してレベルアップ → 出てくる3枚から強化を選ぼう。武器はレベルで進化！', W / 2, H / 2 - 14);
     ctx.fillStyle = '#9fb6d8'; ctx.font = '13px sans-serif';
-    ctx.fillText('右下ボタン：一時停止／サウンド。スキル（⚡）は宝箱を開けると手に入る！', W / 2, H / 2 + 8);
+    ctx.fillText('右下ボタン：一時停止／サウンド。宝箱を開けるたびスキル（⚡）が進化する！', W / 2, H / 2 + 8);
   } else {
     ctx.fillText('WASD / 矢印キーで移動（攻撃は自動）。マウス長押しでも移動できます。', W / 2, H / 2 - 38);
     ctx.fillText('敵を倒してレベルアップ → 強化を選んで強くなろう。武器はレベルを上げると進化！', W / 2, H / 2 - 14);
     ctx.fillStyle = '#9fb6d8'; ctx.font = '13px sans-serif';
-    ctx.fillText('P：一時停止　Tab：ステータス確認　Space：スキル発動（🎁宝箱で入手）', W / 2, H / 2 + 8);
+    ctx.fillText('P：一時停止　Tab：ステータス確認　Space：スキル発動（🎁宝箱で進化）', W / 2, H / 2 + 8);
   }
   ctx.fillStyle = '#ffd23f'; ctx.font = 'bold 15px sans-serif';
   ctx.fillText('★ 目標：9分耐えてラスボスを倒すとクリア！', W / 2, H / 2 + 36);
