@@ -56,3 +56,16 @@ Primary development branch
 
 ---
 
+## Commit 6a492691 — 2026-07-04 15:28 UTC
+
+### Branch Purpose
+Primary development branch
+
+### Previous Progress Summary
+全項目実装済み。検証: node --check構文OK / headless chromeで blinker先頭化(warp=100でblinker:1800)・コンティニュー(死亡→playing復帰・HP全快・deaths/totalDeaths=1)・宝箱フロー(初回=ダッシュorブリンク確定、カード表示→任意キー/クリックで再開、2個目は別枠)・ラスボスHP13000(lvScale込みで期待値一致)を数値確認。スクショでゲームオーバー2ボタン画面と宝箱カードの描画確認。残作業なし。push はStop hookが自動実行
+
+### This Commit's Contribution
+SKILL_UPGRADES 5段(dash→dashInvuln→CD半減→blink→CD半減)＋6個目以降フルリペア。enemyCage包囲攻撃をspreader(交互)とoverlord(r 0.60-0.72)に追加。overlord弾dmg 30/30/24/26・ストンプ50・接触45。ヘッドレス数値検証とスクショ確認済み。残: push+Pages監視・メモリ更新
+
+---
+
