@@ -293,3 +293,4 @@ _[Checkpoint: 6a4a3d0b — edited index.html; edited index.html; edited index.ht
 [11:53:50] ACT: edited index.html
 [11:54:01] ACT: edited index.html
 [11:54:56] OBSERVE: read start.png
+[11:55:25] OBSERVE: read playing.png
