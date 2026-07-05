@@ -159,3 +159,4 @@ _[Checkpoint: 6a4a0557 — コアフェーズ中の雑魚無害化: 視覚効果
 [07:48:55] OBSERVE: read zoom-swift.png
 [07:49:25] OBSERVE: read zoom-swift.png
 [07:49:48] OBSERVE: read zoom-weaver.png
+[07:52:29] OBSERVE: read zoom-weaver2.png
