@@ -5,6 +5,7 @@ index.html.bak3
 
 # 開発中の確認用スクリーンショット
 _shots/
+.playwright-mcp/
 
 # OS が作る隠しファイル
 .DS_Store
