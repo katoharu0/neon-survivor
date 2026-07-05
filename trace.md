@@ -189,3 +189,4 @@ _[Checkpoint: 6a4a0e06 — edited index.html; edited index.html]_
 [08:35:28] OBSERVE: read index.html
 [08:36:47] OBSERVE: read index.html
 [08:38:56] OBSERVE: read zoom-dasher-normal2.png
+[08:39:13] OBSERVE: read zoom-dasher-charge2.png
