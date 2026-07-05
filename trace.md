@@ -234,3 +234,4 @@ _[Checkpoint: 6a4a18fb — edited index.html; edited index.html]_
 [09:10:24] OBSERVE: read 04_orbiter_bullet.png
 [09:10:43] OBSERVE: read 05_orbiter_bullet_spread.png
 [09:11:02] OBSERVE: read 06_brute_slam_warn.png
+[09:11:23] OBSERVE: read 07_brute_slam_hit.png
