@@ -134,3 +134,16 @@ Primary development branch
 
 ---
 
+## Commit 6a4a0557 — 2026-07-05 07:18 UTC
+
+### Branch Purpose
+Primary development branch
+
+### Previous Progress Summary
+
+
+### This Commit's Contribution
+drawEnemies()のvoidFrozen処理(紫トーン変化#8f6fd9・半透明alpha0.5・紫の靄リング#b98cff)をPlaywrightのスクリーンショットで実機確認。requestAnimationFrameを凍結してからrender()を手動呼び出しする手法で、grunt(猫顔)・swift(三角)ともに紫がかった半透明表示になっていることを目視確認できた。テスト用一時PNGは削除済み。次は②通常時の雑魚敵そのものの個性・演出強化を検討する。
+
+---
+
