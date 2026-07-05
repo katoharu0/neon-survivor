@@ -204,3 +204,9 @@ _[Checkpoint: 6a4a0e06 — edited index.html; edited index.html]_
 _[Checkpoint: 6a4a18ee — spitter/dasher/bomber/orbiter/bruteの顔デザイン実装・視認性検証完了]_
 ---
 
+
+
+---
+_[Checkpoint: 6a4a18fb — edited index.html; edited index.html]_
+---
+
