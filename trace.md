@@ -163,3 +163,9 @@ _[Checkpoint: 6a4a0557 — コアフェーズ中の雑魚無害化: 視覚効果
 [07:52:48] OBSERVE: read zoom-tank.png
 [07:53:03] OBSERVE: read zoom-splitter.png
 [07:53:21] OBSERVE: read real-size-check.png
+
+
+---
+_[Checkpoint: 6a4a0d98 — 雑魚敵の見た目作り込み・第1弾完成: swift/weaver/tank/splitterの専用顔を実装しPlaywrightで実寸・拡大両方で視認性を確認]_
+---
+
