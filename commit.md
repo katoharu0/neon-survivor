@@ -173,3 +173,16 @@ drawSwiftFace(鋭い目+スピードライン)/drawWeaverFace(触角+蛇目)/dra
 
 ---
 
+## Commit 6a4a18ee — 2026-07-05 08:42 UTC
+
+### Branch Purpose
+Primary development branch
+
+### Previous Progress Summary
+
+
+### This Commit's Contribution
+drawSpitterFace/drawDasherFace/drawBomberFace/drawOrbiterFace/drawBruteFaceの5関数を追加しdrawEnemiesに分岐を追加。Playwrightでr=90拡大・プレイヤー位置をcam追従先と一致させる手法(p.x=cam.x+W/2等)でカメラドリフトを回避しつつ全状態(spitter発射前兆/dasher通常・charge・dash/bomber通常・点火/orbiter通常・近接/brute)のスクリーンショット確認完了。これで9種の雑魚敵(grunt/swift/weaver/tank/splitter/spitter/dasher/bomber/orbiter/brute)全ての顔デザインが完了。コード変更(index.html)はまだuncommitted、ユーザーの明示指示待ち
+
+---
+

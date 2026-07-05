@@ -198,3 +198,9 @@ _[Checkpoint: 6a4a0e06 — edited index.html; edited index.html]_
 [08:41:18] OBSERVE: read zoom-orbiter-fire.png
 [08:41:33] OBSERVE: read index.html
 [08:41:50] OBSERVE: read zoom-brute.png
+
+
+---
+_[Checkpoint: 6a4a18ee — spitter/dasher/bomber/orbiter/bruteの顔デザイン実装・視認性検証完了]_
+---
+
