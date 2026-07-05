@@ -232,3 +232,4 @@ _[Checkpoint: 6a4a18fb — edited index.html; edited index.html]_
 [09:09:15] OBSERVE: read 02_spitter_bullet.png
 [09:09:59] OBSERVE: read 03_spitter_bullet.png
 [09:10:24] OBSERVE: read 04_orbiter_bullet.png
+[09:10:43] OBSERVE: read 05_orbiter_bullet_spread.png
