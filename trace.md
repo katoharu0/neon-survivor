@@ -175,3 +175,4 @@ _[Checkpoint: 6a4a0d98 — 雑魚敵の見た目作り込み・第1弾完成: sw
 _[Checkpoint: 6a4a0e06 — edited index.html; edited index.html]_
 ---
 
+[08:25:11] OBSERVE: read index.html
