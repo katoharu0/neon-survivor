@@ -160,3 +160,16 @@ drawSwiftFace(鋭い目+スピードライン)/drawWeaverFace(触角+蛇目)/dra
 
 ---
 
+## Commit 6a4a0e06 — 2026-07-05 07:55 UTC
+
+### Branch Purpose
+Primary development branch
+
+### Previous Progress Summary
+drawSwiftFace(鋭い目+スピードライン)/drawWeaverFace(触角+蛇目)/drawTankFace(装甲鋲+十字グリル)/drawSplitterFace(ひび割れ+脈動する核)をdrawEnemies()のkind分岐に追加。実寸(r13-26)・拡大(r90)双方のスクリーンショットで4種とも判別可能なことを確認済み。残りspitter/dasher/bomber/orbiter/bruteは次バッチで対応予定。
+
+### This Commit's Contribution
+
+
+---
+
