@@ -300,3 +300,4 @@ _[Checkpoint: 6a4a3d0b — edited index.html; edited index.html; edited index.ht
 [12:00:01] OBSERVE: read boss_spawnfx4.png
 [12:00:44] OBSERVE: read boss_spawnfx5.png
 [12:01:22] OBSERVE: read boss_aura.png
+[12:01:46] OBSERVE: read boss_aura2.png
