@@ -316,3 +316,16 @@ index.html:1249 の地雷爆発を weaponDmg(wm) に統一。対照実験（OFF=
 
 ---
 
+## Commit 6a4b5d97 — 2026-07-06 07:47 UTC
+
+### Branch Purpose
+Primary development branch
+
+### Previous Progress Summary
+index.html:1249 の地雷爆発を weaponDmg(wm) に統一。対照実験（OFF=44/ON=57.2、比率ちょうど1.3）で実機検証済み。SPEC.md（仕様書・方針書）を新設し、CLAUDE.md に都度更新ルール・バックアップ不要ルールを追記。verify SKILL.md にダメージ対照実験のノウハウ（bolt常時発射・levelup停止対策）を追記。残タスク: コミットのみ
+
+### This Commit's Contribution
+
+
+---
+

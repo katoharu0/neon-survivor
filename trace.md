@@ -412,3 +412,9 @@ _[Checkpoint: 6a4b4f8d — edited index.html; edited index.html; wrote .claude/s
 _[Checkpoint: 6a4b5d6c — 地雷オーバードライブ倍率漏れ修正＋SPEC.md新設]_
 ---
 
+
+
+---
+_[Checkpoint: 6a4b5d97 — wrote SPEC.md; edited CLAUDE.md; edited .claude/skills/verify/SKILL.md]_
+---
+
