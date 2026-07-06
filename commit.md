@@ -368,3 +368,16 @@ classic scriptタグでfile://互換維持。node --check構文OK、HTTP+Playwri
 
 ---
 
+## Commit 6a4b6fd0 — 2026-07-06 09:05 UTC
+
+### Branch Purpose
+Primary development branch
+
+### Previous Progress Summary
+classic scriptタグでfile://互換維持。node --check構文OK、HTTP+Playwright実プレイ85秒(92キル/Lv10/エラーなし)で挙動同一を確認。SPEC.md/README/検証レシピを同時更新。ついでに未コミットだったindex.html.bak4の削除も別コミットで完了。残タスクなし
+
+### This Commit's Contribution
+
+
+---
+
