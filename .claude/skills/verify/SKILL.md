@@ -1,19 +1,17 @@
 ---
 name: verify
-description: Neon Survivor（単一ファイルHTML5ゲーム）の動作検証レシピ。ビルド不要・Playwright＋URLパラメータで実プレイを観察する。
+description: Neon Survivor（HTML5 canvasゲーム）の動作検証レシピ。ビルド不要・Playwright＋URLパラメータで実プレイを観察する。
 ---
 
 # Neon Survivor 検証レシピ
 
-単一ファイル（index.html）のcanvasゲーム。ビルド・依存なし。検証は「実際に動かして観察」で行う。
+3ファイル構成（index.html＝骨組み / style.css＝見た目 / game.js＝ロジック）のcanvasゲーム。
+ビルド・依存なし。検証は「実際に動かして観察」で行う。
 
 ## 構文チェック（最初の1分）
 
-`<script>` の中身を抜き出して node に読ませる：
-
 ```bash
-sed -n '/<script>/,/<\/script>/p' index.html | sed '1d;$d' > "$SCRATCHPAD/game.js"
-node --check "$SCRATCHPAD/game.js"   # 「構文OK」ならエラーなし
+node --check game.js   # 何も出なければエラーなし
 ```
 
 ## 起動

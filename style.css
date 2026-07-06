@@ -1,0 +1,40 @@
+  /* 画面全体を黒くして、ゲームを中央に置く */
+  html, body {
+    margin: 0; height: 100%; background: #05060c; overflow: hidden;
+    font-family: "Segoe UI", system-ui, sans-serif; color: #cfe8ff;
+  }
+  #wrap {
+    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+  }
+  /* ゲーム画面。光彩で「ネオンっぽさ」を出す */
+  canvas {
+    background: #05060c;
+    box-shadow: 0 0 60px rgba(60,120,255,.25), inset 0 0 0 1px rgba(120,180,255,.15);
+    border-radius: 10px;
+    touch-action: none;
+    display: block;
+    /* 表示サイズは JS(fitCanvas) で画面に合わせて算出する */
+  }
+  /* スマホを縦に持っているときの「横向きにしてね」案内 */
+  #rotate {
+    position: fixed; inset: 0; z-index: 50; display: none;
+    flex-direction: column; align-items: center; justify-content: center;
+    background: #05060c; color: #cfe8ff; text-align: center; padding: 24px;
+    -webkit-user-select: none; user-select: none;
+  }
+  #rotate.show { display: flex; }
+  #rotate .ico {
+    font-size: 64px; margin-bottom: 18px;
+    animation: rot 1.8s ease-in-out infinite;
+    filter: drop-shadow(0 0 18px rgba(92,240,255,.7));
+  }
+  #rotate .t1 { font-size: 20px; font-weight: bold; color: #5cf0ff; text-shadow: 0 0 16px rgba(92,240,255,.7); }
+  #rotate .t2 { font-size: 14px; color: #9fb6d8; margin-top: 8px; }
+  @keyframes rot { 0%,100%{ transform: rotate(-12deg);} 50%{ transform: rotate(78deg);} }
+  /* 開発用：実行時エラーを画面に赤く出す（原因が一目で分かるように） */
+  #err {
+    position: fixed; left: 8px; top: 8px; right: 8px; z-index: 99;
+    background: rgba(60,0,0,.9); color: #ff8a8a; padding: 10px 12px;
+    border: 1px solid #ff5a5a; border-radius: 8px; font-size: 13px;
+    white-space: pre-wrap; display: none; font-family: monospace;
+  }
