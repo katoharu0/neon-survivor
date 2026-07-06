@@ -303,3 +303,16 @@ update(dt)340行を9つの意味別関数に分割（死亡時early-returnはboo
 
 ---
 
+## Commit 6a4b5d6c — 2026-07-06 07:46 UTC
+
+### Branch Purpose
+Primary development branch
+
+### Previous Progress Summary
+
+
+### This Commit's Contribution
+index.html:1249 の地雷爆発を weaponDmg(wm) に統一。対照実験（OFF=44/ON=57.2、比率ちょうど1.3）で実機検証済み。SPEC.md（仕様書・方針書）を新設し、CLAUDE.md に都度更新ルール・バックアップ不要ルールを追記。verify SKILL.md にダメージ対照実験のノウハウ（bolt常時発射・levelup停止対策）を追記。残タスク: コミットのみ
+
+---
+
