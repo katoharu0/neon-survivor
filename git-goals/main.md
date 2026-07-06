@@ -1,3 +1,3 @@
 # Git Branch Goal: main
 
-地雷のオーバードライブ倍率漏れ修正＋SPEC.md（仕様書）新設＋都度更新ルールの恒久化
+index.htmlをHTML/style.css/game.jsの3ファイルに分割（file://互換の古典的scriptタグ方式、挙動変更なし）
