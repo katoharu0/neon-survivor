@@ -463,3 +463,9 @@ _[Checkpoint: 6a4b6fd0 — edited SPEC.md; edited .claude/skills/verify/SKILL.md
 _[Checkpoint: 6a4b718c — ミニボスXP増量完了(84×(1+t/120))]_
 ---
 
+
+
+---
+_[Checkpoint: 6a4b7214 — edited SPEC.md; edited SPEC.md; edited SPEC.md]_
+---
+
