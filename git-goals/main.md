@@ -1,3 +1,3 @@
 # Git Branch Goal: main
 
-index.htmlをHTML/style.css/game.jsの3ファイルに分割（file://互換の古典的scriptタグ方式、挙動変更なし）
+ミニボス撃破時のXPを時間スケール化して従来の3倍以上に増量
