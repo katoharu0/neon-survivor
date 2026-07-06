@@ -1246,7 +1246,7 @@ function updateProjectiles(dt) {
       if (e.dead) continue;
       if (dist2(m.x, m.y, e.x, e.y) < (e.r + m.r) * (e.r + m.r)) {
         const wm = p.weapons.mine;
-        explode(m.x, m.y, wm.radius, wm.dmg * p.dmgMul, '#ffb24b');
+        explode(m.x, m.y, wm.radius, weaponDmg(wm), '#ffb24b');
         if (wm.evolved && !m.small) { for (let k = 0; k < 3; k++) g.mines.push({ x: m.x + rand(-34, 34), y: m.y + rand(-34, 34), arm: 0.25, r: 7, small: true }); }
         m.dead = true; break;
       }

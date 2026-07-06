@@ -56,6 +56,20 @@ python3 -m http.server 8642 --bind 127.0.0.1   # バックグラウンド実行
 
 発動待ちは async 関数でページ内ポーリングが確実（fast=4だとフェーズは実時間約1.6秒で終わる）。
 
+## ダメージの対照実験（browser_evaluate）
+
+特定の武器のダメージを正確に測るときの落とし穴：
+
+- **boltはlv判定なしで常時発射される**（初期装備のため）。`p.weapons.bolt.cd = 9999` で凍結し、
+  飛行中の弾の混入を防ぐため `game.bullets.length = 0` もクリアする。
+- **雑魚が死ぬとlevelup画面で止まる**（stateが'levelup'になり更新が停止）。
+  `p.xp = 0; p.xpNext = 1e9; state = 'playing'` で封じてから計測する。
+- 乱数要素の排除: `p.critChance = 0; p.berserkLv = 0`。的は `spawnEnemy('brute', {x, y})` で置き、
+  `e.hp = e.maxHp = 100000; e.speed = 0` にすると動かない頑丈な的になる。
+- 地雷は `game.mines.push({ x, y, arm: 0, r: 10 })` で敵の真上に置けば次フレームで起爆する。
+- 爆発・ノヴァの衝撃波は `hitSet` で敵1体1回だけ、渡した dmg をそのまま与える（減衰なし）
+  → HP減少量を期待値と直接比較できる。
+
 ## 既知の無害なコンソール出力
 
 - `favicon.ico` 404 エラー（1件）
