@@ -462,7 +462,9 @@ function enemyKinds(t) {
     bomber:   { hp: 37 * hpScale,  speed: ss(74),  r: 18, dmg: ds(31), xp: xs(2), color: '#ff7b3d', shape: 'square', move: 'bomb' },
     orbiter:  { hp: 30 * hpScale,  speed: ss(120), r: 15, dmg: ds(14), xp: xs(2), color: '#8a7bff', shape: 'tri',    move: 'orbit', ranged: true }, // 距離を保って旋回しながら撃つ
     brute:    { hp: 190 * hpScale, speed: ss(52),  r: 29, dmg: ds(42), xp: xs(4), color: '#ff5c3d', shape: 'hex',    move: 'chase' },                // 鈍重だが一撃が重い
-    miniboss: { hp: 520 * hpScale, speed: ss(76),  r: 45, dmg: ds(30), xp: xs(28), color: '#4be0ff', shape: 'boss',  move: 'chase' }, // HP1.3倍・サイズ1.5倍（ユーザー要望）
+    // ミニボスXPは専用の急カーブ：84×(1+t/120)。従来(28×(1+t/200))比で3.6〜4.4倍、
+    // 後半のボスほど報酬が大きくなる（ユーザー要望：3倍以上・時間で変わるように）
+    miniboss: { hp: 520 * hpScale, speed: ss(76),  r: 45, dmg: ds(30), xp: Math.ceil(84 * (1 + t / 120)), color: '#4be0ff', shape: 'boss',  move: 'chase' }, // HP1.3倍・サイズ1.5倍（ユーザー要望）
   };
 }
 
@@ -890,7 +892,7 @@ function killEnemy(e) {
 
   // XPジェムをドロップ。コンボ継続中はボーナス（最大2倍）
   const comboBns = Math.min(2.0, 1 + (game.combo > 3 ? (game.combo - 3) * 0.04 : 0));
-  const drops = e.boss ? 16 : (e.kind === 'miniboss' ? 8 : (e.elite ? 4 : 1));
+  const drops = e.boss ? 16 : (e.kind === 'miniboss' ? 12 : (e.elite ? 4 : 1)); // ミニボスは12個ばら撒いて「大量」感を出す（合計XPは変わらない）
   const per = Math.max(1, Math.round(e.xp * comboBns / drops));
   for (let i = 0; i < drops; i++) {
     game.gems.push({ x: e.x + rand(-16, 16), y: e.y + rand(-16, 16), value: per, vx: rand(-40, 40), vy: rand(-40, 40), big: e.elite || isBig });
