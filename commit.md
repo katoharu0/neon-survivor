@@ -290,3 +290,16 @@ update(dt)340行を9つの意味別関数に分割（死亡時early-returnはboo
 
 ---
 
+## Commit 6a4b4f8d — 2026-07-06 06:47 UTC
+
+### Branch Purpose
+Primary development branch
+
+### Previous Progress Summary
+update(dt)340行を9つの意味別関数に分割（死亡時early-returnはbool戻り値で維持）、weaponDmgヘルパーで重複6箇所解消、DESPAWN_R/オーバードライブ倍率を定数化。検証：node --check構文OK、序盤プレイ正常、デモAI死亡→gameover遷移正常、godmode+warpでラスボス戦→侵食フェーズ2回→撃破→win画面まで到達、JSエラーゼロ（favicon404とAudioContext警告は既存・無害）。残: 地雷ダメージだけオーバードライブ倍率が掛からない既存の非一貫性をユーザーに報告
+
+### This Commit's Contribution
+
+
+---
+
