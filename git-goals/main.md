@@ -1,3 +1,3 @@
 # Git Branch Goal: main
 
-index.htmlのリファクタリング（update分割・weaponDmgヘルパー・定数化）と動作検証
+地雷ダメージのオーバードライブ倍率抜けを修正＋仕様書SPEC.mdの新規作成と更新ルール定着
