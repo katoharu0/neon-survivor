@@ -623,3 +623,9 @@ _[Checkpoint: 6a4d1600 — edited SPEC.md; edited SPEC.md; edited game.js]_
 _[Checkpoint: 6a4d1bae — スマホの影(shadowBlur)を無効化]_
 ---
 
+
+
+---
+_[Checkpoint: 6a4d1bb7 — edited game.js; edited SPEC.md; edited SPEC.md]_
+---
+
