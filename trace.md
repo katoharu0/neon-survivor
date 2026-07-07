@@ -617,3 +617,9 @@ _[Checkpoint: 6a4d1600 — edited SPEC.md; edited SPEC.md; edited game.js]_
 [15:29:11] OBSERVE: read SPEC.md
 [15:29:15] ACT: edited SPEC.md
 [15:29:19] ACT: edited SPEC.md
+
+
+---
+_[Checkpoint: 6a4d1bae — スマホの影(shadowBlur)を無効化]_
+---
+

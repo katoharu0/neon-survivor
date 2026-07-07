@@ -446,3 +446,16 @@ Primary development branch
 
 ---
 
+## Commit 6a4d1bae — 2026-07-07 15:30 UTC
+
+### Branch Purpose
+Primary development branch
+
+### Previous Progress Summary
+
+
+### This Commit's Contribution
+IS_TOUCH時にCanvasRenderingContext2D.prototypeのshadowBlur setterを差し替えて常に0にする方式で、65箇所ある個別のshadowBlur設定箇所を一切変更せずに実現。PC版は従来通り影あり。実機検証(Playwright)でPC版は影が機能し、IS_TOUCH=trueを模擬したロジックでは0化されることを確認。
+
+---
+
