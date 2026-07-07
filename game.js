@@ -37,8 +37,9 @@ const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 
 // 高解像度ディスプレイでもくっきり描くための設定（描画バッファ）
+// スマホは発熱対策として解像度上限を下げる（描くピクセル数を減らして負荷軽減・ユーザー要望）
 function setupHiDPI() {
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const dpr = Math.min(window.devicePixelRatio || 1, IS_TOUCH ? 1.5 : 2);
   canvas.width = W * dpr;
   canvas.height = H * dpr;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -103,7 +104,6 @@ function waveIndex(t) { return clamp(Math.floor(t / WAVE_LEN), 0, WAVES.length -
 const WEAPON_META = {
   bolt:    { icon: '⚡', base: 'ボルト',     evo: 'スキャッターボルト' },
   orbit:   { icon: '🛰', base: 'オービット', evo: 'サテライトリング' },
-  aura:    { icon: '🔥', base: 'オーラ',     evo: 'インフェルノ' },
   nova:    { icon: '💥', base: 'ノヴァ',     evo: 'スーパーノヴァ' },
   thunder: { icon: '🔱', base: 'サンダー',   evo: 'サンダーストーム' },
   frost:   { icon: '❄', base: 'フロスト',    evo: 'アブソリュートゼロ' },
@@ -144,7 +144,7 @@ const Sound = (() => {
   return {
     shoot: () => blip(660, 0.07, 'square', 0.04, 880),
     hit:   () => blip(220, 0.05, 'triangle', 0.04),
-    kill:  (pitch) => blip(180 * (pitch || 1), 0.16, 'sawtooth', 0.08, 60 * (pitch || 1)), // コンボでピッチが上がる（Cycle35）
+    kill:  () => blip(180, 0.16, 'sawtooth', 0.08, 60),
     hurt:  () => blip(120, 0.22, 'sawtooth', 0.18, 50),
     nova:  () => blip(140, 0.30, 'sine', 0.12, 520),
     zap:   () => blip(900, 0.10, 'square', 0.06, 300),
@@ -155,8 +155,6 @@ const Sound = (() => {
     win:   () => { [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => blip(f, 0.22, 'square', 0.16), i * 150)); },
     pick:  () => blip(880, 0.04, 'sine', 0.04, 1200),
     pause: () => blip(330, 0.08, 'sine', 0.08, 220),
-    // コンボマイルストーン達成時の2音上昇チャイム
-    comboMile: () => { blip(660, 0.07, 'square', 0.10); setTimeout(() => blip(990, 0.12, 'square', 0.13), 70); },
     // オーバードライブ発動時の電撃ジングル
     overdrive: () => { blip(220, 0.04, 'sawtooth', 0.12, 880); setTimeout(() => blip(440, 0.04, 'sawtooth', 0.14, 1100), 50); setTimeout(() => blip(880, 0.20, 'square', 0.18, 1320), 100); },
     // ウェーブ切り替え時の上昇チャイム
@@ -206,23 +204,14 @@ function tryDash() {
   const p = game.player;
   if (!p.activeSkill) return; // 宝箱でスキルを手に入れるまでは何も起きない
   if (p.dashCd > 0) return;
-  p.dashCd = 6 * p.skillCdMul; // 基本6秒。宝箱の強化で3秒→1.5秒と短くなる
-  if (p.activeSkill === 'blink') {
-    // ブリンク：向いている方向へ150px瞬間移動（短い無敵つき）
-    burst(p.x, p.y, '#c69dff', 12, 170);
-    p.x += p.facing.x * 150; p.y += p.facing.y * 150;
-    { const pd = Math.hypot(p.x, p.y); if (pd > ARENA_R - p.r) { const sc = (ARENA_R - p.r) / pd; p.x *= sc; p.y *= sc; } }
-    p.invuln = Math.max(p.invuln, 0.35);
-    Sound.dash();
-    burst(p.x, p.y, '#c69dff', 14, 190);
-  } else {
-    // フェイズダッシュ：0.18秒だけ移動速度×3で加速（無敵は宝箱2個目の強化から）
-    p.dashing = 0.18;
-    // ダッシュの発動感（Cycle33）：風切り音＋足元に白い破裂
-    Sound.dash();
-    burst(p.x, p.y, '#dcfaff', 10, 150);
-    shake(2);
-  }
+  p.dashCd = 6 * p.skillCdMul; // 基本6秒。宝箱の強化でCDが半分ずつ縮む
+  // フェイズダッシュ：0.18秒だけ移動速度×3で加速（無敵は宝箱2個目の強化「無敵ダッシュ」から）
+  p.dashing = 0.18;
+  if (p.dashInvuln) p.invuln = Math.max(p.invuln, 0.18);
+  // ダッシュの発動感（Cycle33）：風切り音＋足元に白い破裂
+  Sound.dash();
+  burst(p.x, p.y, '#dcfaff', 10, 150);
+  shake(2);
 }
 
 addEventListener('keydown', e => {
@@ -348,9 +337,9 @@ function newPlayer() {
     xpMul: 1,              // XP獲得倍率
     barrierActive: false,  // バリアアップグレードを取得済みか
     barrierCharge: 0,      // バリアの充電量（20秒で1発分）
-    activeSkill: null,     // アクティブスキル（'dash' | 'blink'）。宝箱で入手するまで null
-    skillLv: 0,            // 宝箱で進んだスキル強化の段階（0〜5）
-    skillCdMul: 1,         // スキルCD倍率（基本6秒。強化で 0.5 → 0.25 に）
+    activeSkill: null,     // アクティブスキル（'dash'）。宝箱で入手するまで null
+    skillLv: 0,            // 宝箱で進んだスキル強化の段階（0〜4）
+    skillCdMul: 1,         // スキルCD倍率（宝箱の強化で半分ずつ縮む）
     dashInvuln: false,     // ダッシュ中に無敵になるか（宝箱2個目の強化で true）
     dashCd: 0,             // スキルのクールダウン
     dashing: 0,            // ダッシュ中の残り時間（0.18秒）
@@ -361,7 +350,6 @@ function newPlayer() {
     adrenalineLv: 0,       // アドレナリン: 低HPほど移動速度ボーナス
     deathDefyLv: 0,        // 死の免除: 1回だけ瀕死から蘇生
     strikerLv: 0,          // ストライカー: ダッシュ中に敵にダメージ
-    detonateLv: 0,         // 起爆: 敵撃破時に確率で爆発（Cycle28）
     facing: { x: 1, y: 0 },// 向き（移動方向）
     upgradeCount: {},       // 各アップグレード個別の取得回数（上限管理用）
     weapons: {
@@ -369,14 +357,12 @@ function newPlayer() {
       bolt:    { lv: 1, evolved: false, cd: 0, interval: 0.50, dmg: 14, count: 1, speed: 460, pierce: 0, spread: 0.18 },
       // 体の周りを回る光弾
       orbit:   { lv: 0, evolved: false, cd: 0, count: 2, dmg: 10, radius: 80, rotSpeed: 2.6, angle: 0 },
-      // 周囲を焼く範囲ダメージ
-      aura:    { lv: 0, evolved: false, cd: 0, tick: 0.45, dmg: 7, radius: 95 },
       // 周期的に全方位へ広がる衝撃波
       nova:    { lv: 0, evolved: false, cd: 0, interval: 3.0, dmg: 26, radius: 230, speed: 520 },
       // 最寄りの敵に落雷し、近くの敵へ連鎖する
       thunder: { lv: 0, evolved: false, cd: 0, interval: 1.6, dmg: 20, chains: 3, range: 220 },
       // 周囲の敵を凍らせて遅くする冷気（小ダメージ＋減速）
-      frost:   { lv: 0, evolved: false, cd: 0, tick: 0.35, dmg: 5, radius: 120, slow: 0.5 },
+      frost:   { lv: 0, evolved: false, cd: 0, tick: 0.35, dmg: 5, radius: 240, slow: 0.5 },
       // 地雷を設置。敵が触れると爆発（範囲ダメージ）
       mine:    { lv: 0, evolved: false, cd: 0, interval: 1.4, dmg: 44, radius: 78, max: 6 },
     },
@@ -391,7 +377,6 @@ function resetGame(mode) {
     freezeT: 0,             // タイムフリーズ（敵停止）の残り秒数（宝箱アイテム）
     chestCard: null,        // 宝箱アイテムの説明カード表示用
     kills: 0,
-    combo: 0, comboTimer: 0, maxCombo: 0, // 連続キルのコンボ（爽快感の演出）
     enemies: [],
     bullets: [],            // プレイヤーの弾
     enemyBullets: [],       // 敵の弾（spitter・ボス）
@@ -422,8 +407,6 @@ function resetGame(mode) {
     rerollsLeft: 1,         // レベルアップ時の引き直し残り回数
     xpBoostTimer: 0,        // 強欲の輝き：残り秒数（0=無効）
     hordeCd: 0,             // 群れスポーンのクールダウン
-    // オーバードライブ（15連続キルで発動、速度・火力が一時ブースト）
-    overdriveKills: 0, overdriveTimer: 0, overdrive: false, overdriveLife: 0, overdriveCooldown: 0,
     screenFlash: null,   // 画面フラッシュ { color, life, max }
     lastEliteBanner: 999, // エリート登場バナーの間隔管理
   };
@@ -458,7 +441,6 @@ function enemyKinds(t) {
     splitter: { hp: 46 * hpScale,  speed: ss(60),  r: 19, dmg: ds(15), xp: xs(2), color: '#6bffb0', shape: 'square', move: 'chase', splits: true },
     spitter:  { hp: 38 * hpScale,  speed: ss(54),  r: 17, dmg: ds(15), xp: xs(2), color: '#ff9b3d', shape: 'circle', move: 'chase', ranged: true },
     weaver:   { hp: 22 * hpScale,  speed: ss(110), r: 15, dmg: ds(11), xp: xs(1), color: '#ff8af0', shape: 'circle', move: 'weave' },
-    dasher:   { hp: 42 * hpScale,  speed: ss(58),  r: 17, dmg: ds(20), xp: xs(2), color: '#41ffd5', shape: 'tri',    move: 'dash' },
     bomber:   { hp: 37 * hpScale,  speed: ss(74),  r: 18, dmg: ds(31), xp: xs(2), color: '#ff7b3d', shape: 'square', move: 'bomb' },
     orbiter:  { hp: 30 * hpScale,  speed: ss(120), r: 15, dmg: ds(14), xp: xs(2), color: '#8a7bff', shape: 'tri',    move: 'orbit', ranged: true }, // 距離を保って旋回しながら撃つ
     brute:    { hp: 190 * hpScale, speed: ss(52),  r: 29, dmg: ds(42), xp: xs(4), color: '#ff5c3d', shape: 'hex',    move: 'chase' },                // 鈍重だが一撃が重い
@@ -521,7 +503,6 @@ const ENEMY_SCHED = {
   tank:     [0,   0,   0.80, 0.90, 0.85, 0.75],  // 重装型。wave2〜ずっと出る
   splitter: [0,   0,   0.80, 0.70, 0.60, 0.55],  // 分裂型。wave2〜
   spitter:  [0,   0,   0,    0.80, 0.70, 0.65],  // 遠距離型。wave3〜
-  dasher:   [0,   0,   0,    0.65, 0.70, 0.65],  // 突進型。wave3〜
   orbiter:  [0,   0,   0,    0.50, 0.65, 0.65],  // 旋回型。wave3〜
   bomber:   [0,   0,   0,    0,    0.65, 0.75],  // 自爆型。wave4〜
   brute:    [0,   0,   0,    0,    0.60, 0.75],  // 重量型。wave4〜
@@ -587,23 +568,6 @@ function buildUpgradePool() {
   } else {
     pool.push({ id: 'orbit_dmg2', name: 'サテライト増幅', desc: 'サテライトの威力 +16', icon: ic('orbit'),
       apply: () => { w.orbit.dmg += 16; } });
-  }
-
-  // ---- オーラ（範囲継続ダメージ） ----
-  if (w.aura.lv === 0) {
-    pool.push({ id: 'aura_get', name: 'オーラ', desc: '周囲の敵をじわじわ焼く', icon: ic('aura'), isNew: true, apply: () => { w.aura.lv = 1; } });
-  } else if (!w.aura.evolved) {
-    pool.push({ id: 'aura_dmg', name: 'オーラ強化', desc: 'オーラの威力 +6', icon: ic('aura'),
-      apply: () => { w.aura.dmg += 6; w.aura.lv++; } });
-    pool.push({ id: 'aura_size', name: 'オーラ拡大', desc: 'オーラの範囲 +20%', icon: ic('aura'),
-      apply: () => { w.aura.radius *= 1.20; w.aura.lv++; } });
-    if (w.aura.lv >= 4) {
-      pool.push({ id: 'aura_evo', name: 'インフェルノ', desc: '【オーラ進化】炎が拡大し敵を吹き飛ばす', icon: ic('aura'), isEvo: true,
-        apply: () => { w.aura.evolved = true; w.aura.radius *= 1.35; w.aura.dmg += 10; w.aura.tick = 0.3; } });
-    }
-  } else {
-    pool.push({ id: 'aura_dmg2', name: 'インフェルノ増幅', desc: 'インフェルノの威力 +12', icon: ic('aura'),
-      apply: () => { w.aura.dmg += 12; } });
   }
 
   // ---- ノヴァ（周期衝撃波） ----
@@ -675,19 +639,20 @@ function buildUpgradePool() {
   }
 
   // ---- ステータス系（いつでも候補） ----
-  pool.push({ id: 'maxhp', name: '体力増強', desc: '最大HP +30（HPを30回復）', icon: '❤', apply: () => { p.maxHp += 30; p.hp = Math.min(p.maxHp, p.hp + 30); } });
-  pool.push({ id: 'speed', name: '俊足', desc: '移動速度 +10%', icon: '👟', apply: () => { p.speed *= 1.10; } });
-  pool.push({ id: 'power', name: '攻撃力上昇', desc: '全武器ダメージ +12%', icon: '💢', apply: () => { p.dmgMul *= 1.12; } });
+  // レベルアップ回数を減らす代わりに、1回あたりの伸びを強化（ユーザー要望）
+  pool.push({ id: 'maxhp', name: '体力増強', desc: '最大HP +45（HPを45回復）', icon: '❤', apply: () => { p.maxHp += 45; p.hp = Math.min(p.maxHp, p.hp + 45); } });
+  pool.push({ id: 'speed', name: '俊足', desc: '移動速度 +14%', icon: '👟', apply: () => { p.speed *= 1.14; } });
+  pool.push({ id: 'power', name: '攻撃力上昇', desc: '全武器ダメージ +17%', icon: '💢', apply: () => { p.dmgMul *= 1.17; } });
   // 再生は上限ありで青天井にしない（毎秒回復が敵火力を上回って不死化するのを防ぐ）
-  if (p.regen < 6) pool.push({ id: 'regen', name: '再生', desc: '毎秒HP +0.9 回復（上限あり）', icon: '✚', apply: () => { p.regen = Math.min(6, p.regen + 0.9); } });
-  if (p.critChance < 0.5) pool.push({ id: 'crit', name: '会心', desc: '会心率 +8%（2.2倍ダメージ）', icon: '🎯', apply: () => { p.critChance += 0.08; } });
-  if (p.armor < 0.45) pool.push({ id: 'armor', name: '装甲', desc: '被ダメージ -9%（上限45%）', icon: '🛡', apply: () => { p.armor = Math.min(0.45, p.armor + 0.09); } });
+  if (p.regen < 6) pool.push({ id: 'regen', name: '再生', desc: '毎秒HP +1.3 回復（上限あり）', icon: '✚', apply: () => { p.regen = Math.min(6, p.regen + 1.3); } });
+  if (p.critChance < 0.5) pool.push({ id: 'crit', name: '会心', desc: '会心率 +11%（2.2倍ダメージ）', icon: '🎯', apply: () => { p.critChance += 0.11; } });
+  if (p.armor < 0.45) pool.push({ id: 'armor', name: '装甲', desc: '被ダメージ -12%（上限45%）', icon: '🛡', apply: () => { p.armor = Math.min(0.45, p.armor + 0.12); } });
   // 一時バフ（重ねがけで延長、最大60秒）
-  pool.push({ id: 'greed', name: '強欲の輝き', desc: '30秒間 XP+60%（重ねがけで延長）', icon: '💎', apply: () => { game.xpBoostTimer = Math.min(60, (game.xpBoostTimer || 0) + 30); floatText(p.x, p.y - 40, 'XPブースト 30秒!', '#ffea00'); } });
+  pool.push({ id: 'greed', name: '強欲の輝き', desc: '30秒間 XP+75%（重ねがけで延長）', icon: '💎', apply: () => { game.xpBoostTimer = Math.min(60, (game.xpBoostTimer || 0) + 30); floatText(p.x, p.y - 40, 'XPブースト 30秒!', '#ffea00'); } });
   // ---- 追加パッシブ（種類を増やして組み立ての幅を出す） ----
-  pool.push({ id: 'haste', name: '高速詠唱', desc: '全武器の発動が 8% 速くなる', icon: '⏩', apply: () => applyHaste(0.92) });
-  pool.push({ id: 'thorns', name: 'スパイク装甲', desc: '接触した敵に反射ダメージ +16', icon: '🌵', apply: () => { p.thorns = (p.thorns || 0) + 16; } });
-  if ((p.dodge || 0) < 0.30) pool.push({ id: 'dodge', name: '回避', desc: '被弾を 10% で完全回避（上限30%）', icon: '🌀', apply: () => { p.dodge = Math.min(0.30, (p.dodge || 0) + 0.10); } });
+  pool.push({ id: 'haste', name: '高速詠唱', desc: '全武器の発動が 11% 速くなる', icon: '⏩', apply: () => applyHaste(0.89) });
+  pool.push({ id: 'thorns', name: 'スパイク装甲', desc: '接触した敵に反射ダメージ +22', icon: '🌵', apply: () => { p.thorns = (p.thorns || 0) + 22; } });
+  if ((p.dodge || 0) < 0.30) pool.push({ id: 'dodge', name: '回避', desc: '被弾を 13% で完全回避（上限30%）', icon: '🌀', apply: () => { p.dodge = Math.min(0.30, (p.dodge || 0) + 0.13); } });
   if (!p.barrierActive) pool.push({ id: 'barrier', name: 'バリア', desc: '20秒ごとに被弾を1回完全無効化するシールド', icon: '🔵', apply: () => { p.barrierActive = true; p.barrierCharge = 0; } });
   // ---- 新パッシブ: バーサーク / ラッシュ / フェイズダッシュ ----
   if (p.berserkLv < 2) pool.push({ id: 'berserk', name: 'バーサーク', desc: 'HP40%未満で全ダメージ+50%（2回で+100%）', icon: '🔥', apply: () => { p.berserkLv++; floatText(p.x, p.y - 40, 'バーサーク！', '#ff5c00'); } });
@@ -697,8 +662,6 @@ function buildUpgradePool() {
   if (p.deathDefyLv < 1) pool.push({ id: 'deathdefy', name: '死の免除', desc: '一度だけHP1で致死ダメージを生き残る', icon: '⚰️', apply: () => { p.deathDefyLv = 1; floatText(p.x, p.y - 40, '死の免除！', '#ff4b4b'); } });
   // ストライカー: ダッシュ中に接触した敵にダメージ
   if (p.activeSkill === 'dash' && p.strikerLv < 2) pool.push({ id: 'striker', name: 'ストライカー', desc: 'ダッシュで敵に突撃するとダメージ（2段階）', icon: '🗡️', apply: () => { p.strikerLv++; floatText(p.x, p.y - 40, 'ストライカー！', '#ff8c00'); } });
-  // 起爆: 倒した敵が確率で爆発し、周囲を巻き込んで連鎖（Cycle28）
-  if (p.detonateLv < 2) pool.push({ id: 'detonate', name: '起爆', desc: '倒した敵が ' + (10 * (p.detonateLv + 1)) + '% で爆発（連鎖あり）', icon: '💥', apply: () => { p.detonateLv++; floatText(p.x, p.y - 40, '起爆！', '#ff9b3d'); } });
   return pool;
 }
 
@@ -707,8 +670,8 @@ function rollChoices() {
   pool = pool.filter(o => !(o.max && o.lvOf && o.lvOf() >= o.max));
 
   const evos = pool.filter(o => o.isEvo);
-  const weaponUpgrades = pool.filter(o => !o.isEvo && o.id && /^(bolt|orbit|aura|nova|thunder|frost|mine)/.test(o.id));
-  const rest = pool.filter(o => !o.isEvo && !(o.id && /^(bolt|orbit|aura|nova|thunder|frost|mine)/.test(o.id)));
+  const weaponUpgrades = pool.filter(o => !o.isEvo && o.id && /^(bolt|orbit|nova|thunder|frost|mine)/.test(o.id));
+  const rest = pool.filter(o => !o.isEvo && !(o.id && /^(bolt|orbit|nova|thunder|frost|mine)/.test(o.id)));
 
   shuffle(evos); shuffle(weaponUpgrades); shuffle(rest);
 
@@ -746,7 +709,6 @@ function applyHaste(f) {
   w.nova.interval = Math.max(0.9, w.nova.interval * f);
   w.thunder.interval = Math.max(0.4, w.thunder.interval * f);
   w.mine.interval = Math.max(0.4, w.mine.interval * f);
-  w.aura.tick = Math.max(0.22, w.aura.tick * f);
   w.frost.tick = Math.max(0.20, w.frost.tick * f);
 }
 
@@ -761,6 +723,7 @@ function applyChoice(idx) {
   game.rerollsLeft = 1;
   pointer.down = false;
   state = 'playing';
+  game.player.invuln = Math.max(game.player.invuln, 2); // 選択画面明けの不意打ち被弾を防ぐ2秒無敵（ユーザー要望）
   floatText(game.player.x, game.player.y - 50, 'Lv ' + game.player.level, '#8affc1', true);
   if (c.isEvo) { Sound.evolve(); shake(10); setBanner('EVOLVED!', c.name, '#ffd23f'); }
   else Sound.pick();
@@ -777,15 +740,14 @@ function rerollChoices() {
 // 宝箱のスキル強化ラダー：開けるたびに右下ボタンのスキルが決まった順で1段ずつ進化していく
 const SKILL_UPGRADES = [
   { icon: '⚡', name: 'フェイズダッシュ', desc: 'Space / ⚡ボタンで発動。向いている方向へ短距離を一気に加速する（クールダウン6秒）', apply(p) { p.activeSkill = 'dash'; } },
-  { icon: '🛡️', name: 'ゴーストダッシュ', desc: 'ダッシュ中が無敵に！敵や弾をすり抜けて駆け抜けられる', apply(p) { p.dashInvuln = true; } },
+  { icon: '🛡️', name: '無敵ダッシュ', desc: 'ダッシュ中が無敵に！敵や弾をすり抜けて駆け抜けられる', apply(p) { p.dashInvuln = true; } },
   { icon: '🔋', name: 'スキルチャージャー', desc: 'スキルのクールダウンが半分（6秒→3秒）になった！', apply(p) { p.skillCdMul *= 0.5; } },
-  { icon: '🌀', name: 'ブリンク', desc: 'ダッシュが短距離テレポートに進化！向いている方向へ瞬間移動する（無敵つき）', apply(p) { p.activeSkill = 'blink'; } },
   { icon: '💠', name: 'オーバーチャージ', desc: 'クールダウンがさらに半分（3秒→1.5秒）に！どんどん使える', apply(p) { p.skillCdMul *= 0.5; } },
 ];
-// 6個目以降の宝箱の中身（スキルが最大まで進化した後）
+// 5個目以降の宝箱の中身（スキルが最大まで進化した後）
 const CHEST_BONUS = { icon: '💖', name: 'フルリペア', desc: 'HPが全回復した！', apply(p) { p.hp = p.maxHp; } };
 
-// 宝箱を開ける：スキル強化が順番に1段ずつ手に入る（全5段。以降は全回復）
+// 宝箱を開ける：スキル強化が順番に1段ずつ手に入る（全4段。以降は全回復）
 function openChest(ch) {
   const p = game.player;
   let item;
@@ -809,6 +771,8 @@ function openChest(ch) {
 //  エフェクト（パーティクル・浮き文字・画面シェイク・爆発）
 // =========================================================================
 function burst(x, y, color, n, power) {
+  // スマホは発熱対策としてパーティクル数を半分に間引く（見た目の派手さは概ね維持・ユーザー要望）
+  if (IS_TOUCH) n = Math.ceil(n * 0.5);
   for (let i = 0; i < n; i++) {
     const a = Math.random() * TAU, s = rand(40, power);
     game.particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: rand(0.25, 0.6), max: 0.6, color, r: rand(1.5, 3.5) });
@@ -859,15 +823,6 @@ function killEnemy(e) {
   if (e.dead) return;
   e.dead = true;
   game.kills++;
-  // コンボ加算（爽快感の演出）
-  game.combo++; game.comboTimer = 2.2;
-  if (game.combo > game.maxCombo) game.maxCombo = game.combo;
-  // コンボマイルストーン演出（10/30/50 で特別テキスト＋音）
-  if (game.combo === 10 || game.combo === 30 || game.combo === 50) {
-    const milCol = game.combo >= 50 ? '#ff4be0' : (game.combo >= 30 ? '#ffb24b' : '#ffd23f');
-    floatText(game.player.x, game.player.y - 65, game.combo + ' COMBO!!', milCol, true);
-    Sound.comboMile();
-  }
   // ラッシュ：キルごとに速度ブーストタイマーをリフレッシュ
   if (game.player.rushUpgrade) game.player.rushTimer = 1.5;
 
@@ -890,38 +845,23 @@ function killEnemy(e) {
     }
   }
 
-  // XPジェムをドロップ。コンボ継続中はボーナス（最大2倍）
-  const comboBns = Math.min(2.0, 1 + (game.combo > 3 ? (game.combo - 3) * 0.04 : 0));
+  // XPジェムをドロップ
   const drops = e.boss ? 16 : (e.kind === 'miniboss' ? 12 : (e.elite ? 4 : 1)); // ミニボスは12個ばら撒いて「大量」感を出す（合計XPは変わらない）
-  const per = Math.max(1, Math.round(e.xp * comboBns / drops));
+  const per = Math.max(1, Math.round(e.xp / drops));
   for (let i = 0; i < drops; i++) {
     game.gems.push({ x: e.x + rand(-16, 16), y: e.y + rand(-16, 16), value: per, vx: rand(-40, 40), vy: rand(-40, 40), big: e.elite || isBig });
   }
 
   if (isBig) { game.hitstop = e.boss ? 0.18 : 0.10; } // 撃破の重み（Cycle31。シェイクはユーザー要望で廃止）
-  Sound.kill(1 + Math.min(0.9, game.combo * 0.015)); // コンボが乗るほど音が高くなる（Cycle35）
+  Sound.kill();
 
-  const p2 = game.player;
   // 雑魚敵限定の処理
   if (!isBig) {
-    // オーバードライブ：連続キル数を加算（15体でゲージMAX）
-    game.overdriveKills++;
-    game.overdriveTimer = 6; // 6秒以内に次を倒せばカウント維持
-    if (game.overdriveKills >= 15 && !game.overdrive && game.overdriveCooldown <= 0) {
-      game.overdrive = true; game.overdriveLife = 3.0; game.overdriveCooldown = 14;
-      game.overdriveKills = 0;
-      setBanner('OVERDRIVE!', '15連続キル！ 速度・火力ブースト', '#ffd23f');
-      Sound.overdrive();
-    }
     // ヘルスオーブ：低HPほど出やすい（Cycle16）
     const hpRatio = game.player.hp / game.player.maxHp;
     const orbChance = 0.035 + Math.max(0, 0.5 - hpRatio) * 0.10; // 基礎率を引き上げ（Cycle38）
     if (Math.random() < orbChance) {
       game.healthOrbs.push({ x: e.x, y: e.y, r: 7, value: 15, vx: rand(-24, 24), vy: rand(-24, 24) });
-    }
-    // 起爆：倒した敵が確率で爆発。巻き込んだ敵も倒せば連鎖する（Cycle28）
-    if (p2.detonateLv > 0 && Math.random() < 0.10 * p2.detonateLv) {
-      explode(e.x, e.y, 85, e.maxHp * 0.45 + 15, '#ff9b3d');
     }
   }
 
@@ -931,13 +871,13 @@ function killEnemy(e) {
 
 function gainXP(amount) {
   const p = game.player, g = game;
-  const boostMul = g.xpBoostTimer > 0 ? 1.6 : 1; // 強欲の輝きが有効なら+60%
+  const boostMul = g.xpBoostTimer > 0 ? 1.75 : 1; // 強欲の輝きが有効なら+75%
   p.xp += amount * p.xpMul * boostMul;
   while (p.xp >= p.xpNext) {
     p.xp -= p.xpNext;
     p.level++;
-    // 後半ほど重くなる2次曲線。敵の終盤×2スケール(enemyKinds)との組み合わせでクリア時Lv80目安
-    p.xpNext = Math.round(4 + p.level * 2.8 + p.level * p.level * 0.15);
+    // 後半ほど重くなる2次曲線。レベルアップ回数を抑える代わりに1回の強化量を上げた（ユーザー要望）
+    p.xpNext = Math.round(5 + p.level * 3.8 + p.level * p.level * 0.2);
     rollChoices();
     pointer.down = false; // レベルアップ突入時も移動入力をリセット
     state = 'levelup';
@@ -1001,15 +941,6 @@ function updateTimers(dt) {
     if (g.xpBoostTimer <= 0) { g.xpBoostTimer = 0; floatText(p.x, p.y - 50, 'XPブースト終了', '#cc9900'); }
   }
 
-  // コンボのクールダウン
-  if (g.comboTimer > 0) {
-    g.comboTimer -= dt;
-    if (g.comboTimer <= 0) {
-      if (g.combo >= 20) g.screenFlash = { color: '#ff4455', life: 0.4, max: 0.4 };
-      if (g.combo >= 5) floatText(g.player.x, g.player.y - 55, 'COMBO BREAK', '#ff9b3d');
-      g.combo = 0;
-    }
-  }
   // 低HPの心拍音（Cycle32）：赤ビネットと同期して耳でも危機を知らせる
   if (p.hp / p.maxHp < 0.35) {
     g.heartbeatCd -= dt;
@@ -1020,15 +951,6 @@ function updateTimers(dt) {
   if (g.banner) { g.banner.life -= dt; if (g.banner.life <= 0) g.banner = null; }
   // エリートバナーの間隔タイマー（Cycle19）
   g.lastEliteBanner += dt;
-
-  // オーバードライブのタイマー管理
-  if (g.overdrive) {
-    g.overdriveLife -= dt;
-    if (g.overdriveLife <= 0) { g.overdrive = false; g.overdriveKills = 0; }
-  } else {
-    if (g.overdriveTimer > 0) { g.overdriveTimer -= dt; if (g.overdriveTimer <= 0) g.overdriveKills = 0; }
-    if (g.overdriveCooldown > 0) g.overdriveCooldown -= dt;
-  }
 }
 
 // プレイヤーの移動入力・ダッシュ・回復・カメラ追従
@@ -1066,11 +988,10 @@ function updatePlayerMovement(dt) {
   const ml = Math.hypot(mx, my);
   if (ml > 0.001) {
     mx /= ml; my /= ml;
-    const odSpd = g.overdrive ? OVERDRIVE_SPD_MUL : 1;
     const adrSpd = p.adrenalineLv > 0 ? (1 + p.adrenalineLv * 0.15 * (1 - clamp(p.hp / p.maxHp, 0, 1))) : 1;
     const nitroSpd = p.speedBuffT > 0 ? 2 : 1; // ニトロブースト（宝箱アイテム）
-    p.x += mx * p.speed * moveScale * odSpd * adrSpd * nitroSpd * dt;
-    p.y += my * p.speed * moveScale * odSpd * adrSpd * nitroSpd * dt;
+    p.x += mx * p.speed * moveScale * adrSpd * nitroSpd * dt;
+    p.y += my * p.speed * moveScale * adrSpd * nitroSpd * dt;
     p.facing.x = mx; p.facing.y = my;
   }
 
@@ -1168,7 +1089,6 @@ function updateEnemies(dt) {
 function updateWeapons(dt) {
   updateBolt(dt);
   updateOrbit(dt);
-  updateAura(dt);
   updateNova(dt);
   updateThunder(dt);
   updateFrost(dt);
@@ -1483,7 +1403,7 @@ function updateSpawning(dt) {
       const mbLvScale = 1 + Math.max(0, p.level - 6) * 0.08;
       mb.hp = Math.round(mb.hp * mbLvScale); mb.maxHp = mb.hp;
       mb.color = bossColors[bt] || '#4be0ff';
-      if (bt === 'charger') { mb.r = 69; mb.speed *= 0.85; } // 突進型は大型・鈍足（ユーザー要望：サイズ1.5倍）
+      if (bt === 'charger') { mb.r = 55; } // 突進型は0.8倍サイズ・移動速度は通常のまま（突進時のみ高速・ユーザー要望）
       if (bt === 'sniper') { mb.move = 'orbit'; } // 狙撃型は一定距離を保って旋回しつつ狙い撃つ
     }
     g.miniBossCount++;
@@ -1646,20 +1566,20 @@ function updateBossBehavior(e, dt, dx, dy, d) {
       e.atkCd = 2.6;
     }
   } else if (bt === 'charger') {
-    // 長いタメ→発射の瞬間に狙いを定めて長距離突進（プレイヤーを通り過ぎるまで走る）
+    // 2秒のタメ→発射の瞬間に狙いを定めて長距離突進（プレイヤーを通り過ぎるまで走る・ユーザー要望）
     // 発動間隔8秒＝スキルCD（最大6秒）より長いので、毎回ダッシュで確実にかわせる設計
     if (e.chargeWarn > 0) {
       e.chargeWarn -= dt;
       e.hitFlash = 0.06; // 赤くする（hitFlashを流用）
       if (e.chargeWarn <= 0) { // 予兆終了→この瞬間のプレイヤー位置に照準して突進（歩き回避を許さない）
-        e.chargeT = 0.85; e.cvx = dx * 760; e.cvy = dy * 760;
+        e.chargeT = 1.5; e.cvx = dx * 420; e.cvy = dy * 420; // 速度420=初期プレイヤー速度210の2倍（ユーザー要望）
         burst(e.x, e.y, '#ff3030', 18, 220);
         shake(6);
       }
     } else if (e.chargeT > 0) { e.chargeT -= dt; e.x += e.cvx * dt; e.y += e.cvy * dt; }
     else if (e.atkCd <= 0 && d < 620) {
-      // 予兆開始（0.9秒タメてから突進）
-      e.chargeWarn = 0.9; e.atkCd = 8.0;
+      // 予兆開始（2秒タメてから突進・ユーザー要望）
+      e.chargeWarn = 2.0; e.atkCd = 8.0;
       floatText(e.x, e.y - e.r, '⚠ 突進!', '#ff4444');
       shake(4);
     }
@@ -1839,7 +1759,6 @@ function hurtPlayer(dmg) {
   p.invuln = 1.0; // 被弾後の無敵時間1秒
   p.hurtFlash = 1.0; // 画面端の赤フラッシュ用（無敵時間とは別管理。バリア等の長い無敵で真っ赤にならないように）
   p.regenDelay = 2.5;
-  game.combo = 0; game.comboTimer = 0;
   shake(8); Sound.hurt();
   floatText(p.x, p.y - 20, '-' + dmg, '#ff6b6b');
   if (p.hp <= 0) {
@@ -1890,11 +1809,9 @@ function separateEnemies() {
 // =========================================================================
 //  武器の自動攻撃
 // =========================================================================
-const OVERDRIVE_DMG_MUL = 1.3;   // オーバードライブ中の武器ダメージ倍率
-const OVERDRIVE_SPD_MUL = 1.15;  // オーバードライブ中の移動速度倍率
-// 武器の実ダメージ（プレイヤーの攻撃力倍率＋オーバードライブ補正込み）
+// 武器の実ダメージ（プレイヤーの攻撃力倍率込み）
 function weaponDmg(w) {
-  return w.dmg * game.player.dmgMul * (game.overdrive ? OVERDRIVE_DMG_MUL : 1);
+  return w.dmg * game.player.dmgMul;
 }
 
 function updateBolt(dt) {
@@ -1941,23 +1858,6 @@ function updateOrbit(dt) {
     }
   }
   if (canHit) w.cd = w.evolved ? 0.16 : 0.22;
-}
-
-function updateAura(dt) {
-  const w = game.player.weapons.aura, p = game.player;
-  if (w.lv <= 0) return;
-  w.cd -= dt;
-  if (w.cd > 0) return;
-  w.cd = w.tick;
-  for (const e of game.enemies) {
-    if (e.dead) continue;
-    if (dist2(p.x, p.y, e.x, e.y) < (w.radius + e.r) * (w.radius + e.r)) {
-      const kb = w.evolved ? 60 : 0;
-      let nx = 0, ny = 0;
-      if (kb) { const dx = e.x - p.x, dy = e.y - p.y, d = Math.hypot(dx, dy) || 1; nx = dx / d * kb; ny = dy / d * kb; }
-      damageEnemy(e, weaponDmg(w), nx, ny, false);
-    }
-  }
 }
 
 function updateNova(dt) {
@@ -2057,9 +1957,7 @@ function computeScore() {
   const p = game.player;
   // キル × レベル係数（高レベルほど1キルが重い）
   const killScore = game.kills * 12 * (1 + Math.log(Math.max(1, p.level)) / 3);
-  // コンボボーナス（最大コンボが高いほど大きい）
-  const comboBonus = game.maxCombo * 10 + (game.maxCombo >= 30 ? 1500 : 0);
-  return Math.floor(game.time * 10 + killScore + comboBonus);
+  return Math.floor(game.time * 10 + killScore);
 }
 
 // コンティニュー：死んだその場から再開できる（死亡回数は積み上がる）
@@ -2220,7 +2118,6 @@ function render() {
   }
 
   if (game) { drawHUD(); drawBanner(); }
-  if (game && state === 'playing') drawOverdriveBar();
 
   if (state === 'title') drawTitle();
   else if (state === 'levelup') drawLevelUp();
@@ -2326,10 +2223,7 @@ function drawTrail() {
     const s = worldToScreen(pt.x, pt.y);
     const maxLife = pt.dash ? 0.22 : 0.35;
     const alpha = (pt.life / maxLife) * (pt.dash ? 0.75 : 0.5);
-    let color;
-    if (pt.dash) color = `rgba(220,250,255,${alpha})`;
-    else if (game.overdrive) color = `rgba(255,210,63,${alpha})`;
-    else color = `rgba(92,240,255,${alpha})`;
+    const color = pt.dash ? `rgba(220,250,255,${alpha})` : `rgba(92,240,255,${alpha})`;
     ctx.beginPath(); ctx.arc(s.x, s.y, pt.r, 0, TAU);
     ctx.fillStyle = color; ctx.fill();
   }
@@ -2340,28 +2234,19 @@ function drawPlayer() {
   drawTrail();
   const s = worldToScreen(p.x, p.y);
   if (p.invuln > 0 && Math.floor(p.invuln * 20) % 2 === 0) return;
-  // オーバードライブ中はゴールドのオーラを追加
-  const glowColor = game.overdrive ? '#ffd23f' : '#5cf0ff';
-  const glowSize = game.overdrive ? 40 : 28;
-  glowCircle(s.x, s.y, p.r, glowColor, glowSize);
+  // 無敵時間中は黄色で表示して、被弾しない状態だと一目で分かるように（ユーザー要望）
+  const invuln = p.invuln > 0;
+  const glowColor = invuln ? '#ffe14d' : '#5cf0ff';
+  glowCircle(s.x, s.y, p.r, glowColor, 28);
   // 外枠リング（プレイヤーを敵から判別しやすくする）
   ctx.save();
-  ctx.strokeStyle = game.overdrive ? 'rgba(255,210,63,0.7)' : 'rgba(92,240,255,0.6)';
+  ctx.strokeStyle = invuln ? 'rgba(255,225,77,0.7)' : 'rgba(92,240,255,0.6)';
   ctx.lineWidth = 2;
   ctx.beginPath(); ctx.arc(s.x, s.y, p.r + 4, 0, TAU); ctx.stroke();
   ctx.restore();
-  if (game.overdrive) {
-    // 外側にさらに大きいリング
-    ctx.save();
-    ctx.globalAlpha = 0.35;
-    ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 20;
-    ctx.strokeStyle = '#ffd23f'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(s.x, s.y, p.r + 6 + 3 * Math.sin(performance.now() / 120), 0, TAU); ctx.stroke();
-    ctx.restore();
-  }
-  ctx.fillStyle = game.overdrive ? '#fffbe0' : '#eaffff';
+  ctx.fillStyle = invuln ? '#fff9d6' : '#eaffff';
   ctx.beginPath(); ctx.arc(s.x, s.y, p.r * 0.5, 0, TAU); ctx.fill();
-  ctx.strokeStyle = game.overdrive ? '#ffd23f' : '#bff7ff'; ctx.lineWidth = 3;
+  ctx.strokeStyle = invuln ? '#ffe14d' : '#bff7ff'; ctx.lineWidth = 3;
   ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.lineTo(s.x + p.facing.x * (p.r + 8), s.y + p.facing.y * (p.r + 8)); ctx.stroke();
   // バリアのリング（Cycle14）：充電量に応じて光る
   if (p.barrierActive) {
@@ -2775,9 +2660,7 @@ function drawBoss(e, s) {
     ctx.lineTo(-e.r + 6, e.r * 0.6);
     ctx.closePath(); ctx.fill();
     ctx.globalAlpha = 1;
-    ctx.rotate(-ang); // コア は画面固定
-    ctx.fillStyle = flash ? '#fff' : '#ffb0b0';
-    ctx.beginPath(); ctx.arc(0, 0, e.r * 0.38, 0, TAU); ctx.fill();
+    ctx.rotate(-ang); // 矢印の向きだけ戻す（丸いコアは描かない・ユーザー要望「丸で覆わないで」）
 
   } else if (bt === 'bomber') {
     // 爆撃型：六芒星＋回転ルーン、オレンジ
@@ -3085,16 +2968,6 @@ function drawWeapons() {
     ctx.beginPath(); ctx.arc(s.x, s.y, w.frost.radius, 0, TAU); ctx.fill(); ctx.stroke();
     ctx.restore();
   }
-  // オーラ
-  if (w.aura.lv > 0) {
-    const s = worldToScreen(p.x, p.y);
-    ctx.save();
-    const c = w.aura.evolved ? '255,80,40' : '255,120,40';
-    ctx.fillStyle = 'rgba(' + c + ',.12)';
-    ctx.strokeStyle = 'rgba(' + c + ',.5)'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(s.x, s.y, w.aura.radius, 0, TAU); ctx.fill(); ctx.stroke();
-    ctx.restore();
-  }
   // オービット
   if (w.orbit.lv > 0) {
     for (let i = 0; i < w.orbit.count; i++) {
@@ -3203,8 +3076,8 @@ function drawHUD() {
     const dashMax = 6 * p.skillCdMul;
     const dashReady = p.dashCd <= 0;
     const dashRatio = dashReady ? 1 : clamp(1 - p.dashCd / dashMax, 0, 1);
-    const skIcon = p.activeSkill === 'blink' ? '🌀' : '⚡';
-    const skName = (p.activeSkill === 'blink' ? 'BLINK' : 'DASH') + ' Lv' + p.skillLv;
+    const skIcon = '⚡';
+    const skName = 'DASH Lv' + p.skillLv;
     ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillRect(0, 43, 100, 4);
     ctx.fillStyle = dashReady ? '#4be0ff' : '#2a7090';
     if (dashReady) { ctx.shadowColor = '#4be0ff'; ctx.shadowBlur = 6; }
@@ -3284,18 +3157,6 @@ function drawHUD() {
     ctx.strokeStyle = 'rgba(255,255,255,.25)'; ctx.lineWidth = 1; ctx.strokeRect(bx, by, bw, 8);
     ctx.fillStyle = '#9fb6d8'; ctx.font = '10px sans-serif'; ctx.textAlign = 'center';
     ctx.fillText(game.finalBossSpawned ? 'ラスボスを倒せ！' : 'クリアまで ' + Math.ceil((CLEAR_TIME - game.time)) + 's', W / 2, by + 20);
-  }
-
-  if (game.combo >= 5) {
-    ctx.textAlign = 'center';
-    const c = game.combo;
-    const comboSize = c >= 50 ? 34 : (c >= 20 ? 28 : 22);
-    const comboCol = c >= 50 ? '#ff4be0' : (c >= 20 ? '#ffd23f' : '#cfe8ff');
-    ctx.fillStyle = comboCol;
-    if (c >= 20) { ctx.shadowColor = comboCol; ctx.shadowBlur = 14; }
-    ctx.font = 'bold ' + comboSize + 'px sans-serif';
-    ctx.fillText(c + ' COMBO', W / 2, 92);
-    ctx.shadowBlur = 0;
   }
 
   // ボス・ミニボスのHPバーを画面下部中央に大きく表示（Cycle6）
@@ -3410,39 +3271,6 @@ function drawEnemyRadar() {
   ctx.restore();
 }
 
-// オーバードライブのゲージを右下に表示
-function drawOverdriveBar() {
-  if (!game) return;
-  const g = game;
-  const bw = 120, bh = 8, bx = W - bw - 16, by = H - 32;
-  ctx.fillStyle = 'rgba(0,0,0,.4)'; ctx.fillRect(bx, by, bw, bh);
-  if (g.overdrive) {
-    // 発動中：残り時間を黄色で表示
-    const ratio = g.overdriveLife / 4.0;
-    ctx.fillStyle = '#ffd23f';
-    ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 12;
-    ctx.fillRect(bx, by, bw * ratio, bh);
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = '#fffbe0'; ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'right';
-    ctx.fillText('OVERDRIVE', bx + bw, by - 3);
-  } else if (g.overdriveCooldown <= 0) {
-    // チャージ中：キル数を表示
-    const ratio = Math.min(g.overdriveKills / 15, 1);
-    ctx.fillStyle = ratio >= 1 ? '#ffd23f' : 'rgba(180,140,60,.8)';
-    ctx.fillRect(bx, by, bw * ratio, bh);
-    ctx.fillStyle = '#9fb6d8'; ctx.font = '10px sans-serif'; ctx.textAlign = 'right';
-    ctx.fillText('OD ' + g.overdriveKills + '/15', bx + bw, by - 3);
-  } else {
-    // クールダウン中
-    const ratio = 1 - g.overdriveCooldown / 14;
-    ctx.fillStyle = 'rgba(80,60,20,.8)';
-    ctx.fillRect(bx, by, bw * ratio, bh);
-    ctx.fillStyle = '#9fb6d8'; ctx.font = '10px sans-serif'; ctx.textAlign = 'right';
-    ctx.fillText('CD ' + Math.ceil(g.overdriveCooldown) + 's', bx + bw, by - 3);
-  }
-  ctx.strokeStyle = 'rgba(255,255,255,.25)'; ctx.lineWidth = 1; ctx.strokeRect(bx, by, bw, bh);
-}
-
 // スマホ用の操作UI（バーチャルスティック＋右下のボタン）を描く
 function drawTouchControls() {
   ctx.save();
@@ -3508,7 +3336,7 @@ function drawTouchControls() {
     }
     ctx.fillStyle = dashOK ? '#cffcff' : 'rgba(190,220,255,.45)';
     ctx.font = 'bold 32px sans-serif'; // ボタン拡大に合わせてアイコンも大きく（ユーザー要望）
-    ctx.fillText(pl.activeSkill === 'blink' ? '🌀' : '⚡', db.x, db.y - 4);
+    ctx.fillText('⚡', db.x, db.y - 4);
     // スキル段階（宝箱で進化した回数）をボタン下部に小さく表示
     ctx.font = 'bold 12px sans-serif';
     ctx.fillStyle = dashOK ? '#8adfff' : 'rgba(140,190,230,.5)';
@@ -3788,7 +3616,7 @@ function drawResultStats() {
   ctx.fillStyle = '#eaffff'; ctx.font = '22px monospace';
   ctx.fillText('生存時間  ' + mm + ':' + ss, W / 2, H / 2 - 12);
   ctx.fillStyle = '#cfe8ff'; ctx.font = '17px sans-serif';
-  ctx.fillText('Lv ' + game.player.level + '　撃破 ' + game.kills + '　最大コンボ ' + game.maxCombo, W / 2, H / 2 + 16);
+  ctx.fillText('Lv ' + game.player.level + '　撃破 ' + game.kills, W / 2, H / 2 + 16);
   const score = game.finalScore != null ? game.finalScore : computeScore();
   ctx.fillStyle = '#8affc1'; ctx.font = 'bold 26px sans-serif';
   ctx.fillText('SCORE ' + score, W / 2, H / 2 + 54);
@@ -3820,7 +3648,6 @@ function drawResultStats() {
   if (p.berserkLv > 0) notes.push('🔥Berserk×' + p.berserkLv);
   if (p.deathDefyLv === 0 && p.deathDefied) notes.push('⚰蘇生済');
   if (p.strikerLv > 0) notes.push('🗡️Striker×' + p.strikerLv);
-  if (p.detonateLv > 0) notes.push('💥起爆×' + p.detonateLv);
   if (game.chestsOpened > 0) notes.push('🎁宝箱×' + game.chestsOpened);
   if (game.deaths > 0) notes.push('💀死亡×' + game.deaths);
   if (notes.length) { ctx.font = '11px sans-serif'; ctx.fillStyle = '#c8a0ff'; ctx.fillText(notes.join('  '), W / 2, H / 2 + 144); }
@@ -3948,6 +3775,10 @@ function startGame(mode) {
 let last = performance.now();
 let acc = 0;
 let updMs = 0;
+// スマホは120Hz等の高リフレッシュレート機種で無駄に描画回数が増え発熱の原因になるため、描画のみ60fpsに制限する
+// （物理更新はrAFの実dtに追従したままなので、動きの正しさ・早送りは変わらない・ユーザー要望）
+let lastRenderAt = 0;
+const RENDER_INTERVAL = IS_TOUCH ? 1000 / 60 : 0;
 function frame(now) {
   let dt = (now - last) / 1000;
   last = now;
@@ -3971,7 +3802,10 @@ function frame(now) {
     acc = 0; // ポーズ等から復帰したとき時間がワープしないように
   }
 
-  render();
+  if (RENDER_INTERVAL === 0 || now - lastRenderAt >= RENDER_INTERVAL) {
+    render();
+    lastRenderAt = now;
+  }
   requestAnimationFrame(frame);
 }
 
