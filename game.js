@@ -56,6 +56,17 @@ function fitCanvas() {
 // タッチ端末か（=スマホ操作UIを出すか）。primary ポインタが粗い＝指で操作する端末
 const IS_TOUCH = matchMedia('(pointer:coarse)').matches || ('ontouchstart' in window && !matchMedia('(pointer:fine)').matches);
 
+// スマホでは影（shadowBlur）を丸ごと無効化する（発熱対策・ユーザー要望）。
+// ctx.shadowBlur = 数値 という代入は全部で60箇所以上あるので、個別に書き換えず
+// CanvasRenderingContext2D.prototype 側でsetterを差し替えて常に0にする（PC版のネオン演出は維持）
+if (IS_TOUCH) {
+  const shadowBlurDesc = Object.getOwnPropertyDescriptor(CanvasRenderingContext2D.prototype, 'shadowBlur');
+  Object.defineProperty(CanvasRenderingContext2D.prototype, 'shadowBlur', {
+    get: shadowBlurDesc.get,
+    set() { shadowBlurDesc.set.call(this, 0); },
+  });
+}
+
 // 縦持ちのときは「横向きにしてね」を出す。プレイ中なら一時停止する（不意の被弾防止）
 function checkOrientation() {
   const portrait = window.innerHeight > window.innerWidth;
