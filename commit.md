@@ -420,3 +420,16 @@ dasher削除/選択後2秒無敵/レベルアップ回数減&強化増/オーラ
 
 ---
 
+## Commit 6a4d0b44 — 2026-07-07 14:20 UTC
+
+### Branch Purpose
+Primary development branch
+
+### Previous Progress Summary
+dasher削除/選択後2秒無敵/レベルアップ回数減&強化増/オーラ削除/フロスト範囲2倍/起爆削除/宝箱4段ラダー化/chargerボス仕様変更/無敵中黄色表示/オーバードライブ・コンボ削除/スマホ発熱対策の全項目をPlaywright MCPで実プレイ確認。副産物としてリザルト画面のgame.maxCombo未定義参照バグも発見し修正。コミット6c9600ed。
+
+### This Commit's Contribution
+
+
+---
+

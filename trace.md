@@ -600,3 +600,9 @@ _[Checkpoint: 6a4b7214 — edited SPEC.md; edited SPEC.md; edited SPEC.md]_
 _[Checkpoint: 6a4d0b30 — 11項目の大型改修が完了・実機検証済み・コミット済み]_
 ---
 
+
+
+---
+_[Checkpoint: 6a4d0b44 — edited SPEC.md; edited SPEC.md; edited game.js]_
+---
+
