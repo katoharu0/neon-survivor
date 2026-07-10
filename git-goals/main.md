@@ -1,3 +1,3 @@
 # Git Branch Goal: main
 
-SPEC.md/SKILL.md更新完了の確認、続いて要求11(ランダムアイテム選択AIプレイでcontinueRun 10回程度でクリア可能な難易度)のバランス調整を継続
+hpScale(時間経過のHP倍率)削除の効果を高速シミュレーションで検証し、SPEC.mdを更新する
