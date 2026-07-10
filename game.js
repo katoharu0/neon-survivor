@@ -373,7 +373,7 @@ function newPlayer() {
       // 最寄りの敵に落雷し、近くの敵へ連鎖する
       thunder: { lv: 0, evolved: false, cd: 0, interval: 1.6, dmg: 20, chains: 3, range: 220 },
       // 周囲の敵を凍らせて遅くする冷気（小ダメージ＋減速）
-      frost:   { lv: 0, evolved: false, cd: 0, tick: 0.35, dmg: 5, radius: 240, slow: 0.5 },
+      frost:   { lv: 0, evolved: false, cd: 0, tick: 0.35, dmg: 5, radius: 192, slow: 0.5 }, // 初期範囲0.8倍（ユーザー要望）
       // 地雷を設置。敵が触れると爆発（範囲ダメージ）
       mine:    { lv: 0, evolved: false, cd: 0, interval: 1.4, dmg: 44, radius: 78, max: 6 },
     },
@@ -434,30 +434,31 @@ function setBanner(text, sub, color) {
 //  敵の種類（経過時間tで強さがゆるやかに増す）
 // =========================================================================
 function enemyKinds(t) {
-  // 従来の曲線に「時間経過でじわじわ効く倍率（クリア時にちょうど×2）」を掛ける
-  // → 終盤にプレイヤーが強くなりすぎて敵が置いていかれるのを防ぐ
-  const lateMul = 1 + t / CLEAR_TIME;
-  const hpScale = (1 + t / 52 + (t * t) / 500000) * lateMul;   // 後半ほど加速度的に硬く（中盤の壁を緩和 Cycle37）
+  // 「だんだん強い敵が出てくる」はENEMY_SCHEDによる敵種の入れ替わりで表現する。
+  // HPは時間経過で伸ばさない（ユーザー要望：時間経過のHPスケールは不要）。
+  // ダメージ/速度はCLEAR_TIME（540秒）で頭打ちにする終盤補正のみ残す。
+  const tc = Math.min(t, CLEAR_TIME);
+  const lateMul = 1 + tc / CLEAR_TIME;
   const xpScale = 1 + t / 200;
-  const dmgScale = (1 + t / 200 + (t * t) / 900000) * lateMul; // 序盤は控えめ→終盤きつく
-  const spdLate = 1 + (t / CLEAR_TIME) * 0.8;                  // 速度の終盤補正はHP/攻撃より控えめに
-  const spdScale = (1 + t / 700) * spdLate;                    // 速度カーブは緩やか（囲まれても振り切れる余地を残す）
+  const dmgScale = (1 + tc / 200 + (tc * tc) / 900000) * lateMul; // 序盤は控えめ→終盤きつく
+  const spdLate = 1 + (tc / CLEAR_TIME) * 0.8;                  // 速度の終盤補正はHP/攻撃より控えめに
+  const spdScale = (1 + tc / 700) * spdLate;                    // 速度カーブは緩やか（囲まれても振り切れる余地を残す）
   const xs = (base) => Math.max(1, Math.ceil(base * xpScale));
   const ds = (base) => Math.round(base * dmgScale * 0.8); // 攻撃力全体0.8倍（ユーザー要望）
   const ss = (base) => base * spdScale * 0.8;             // 移動速度全体0.8倍（ユーザー要望）
   return {
-    grunt:    { hp: 24 * hpScale,  speed: ss(68),  r: 16, dmg: ds(14), xp: xs(1), color: '#ff5c8a', shape: 'circle', move: 'chase' },
-    swift:    { hp: 16 * hpScale,  speed: ss(142), r: 13, dmg: ds(11), xp: xs(1), color: '#ffd23f', shape: 'tri',    move: 'chase' },
-    tank:     { hp: 120 * hpScale, speed: ss(58),  r: 26, dmg: ds(25), xp: xs(3), color: '#7c5cff', shape: 'hex',    move: 'chase' },
-    splitter: { hp: 46 * hpScale,  speed: ss(60),  r: 19, dmg: ds(15), xp: xs(2), color: '#6bffb0', shape: 'square', move: 'chase', splits: true },
-    spitter:  { hp: 38 * hpScale,  speed: ss(54),  r: 17, dmg: ds(15), xp: xs(2), color: '#ff9b3d', shape: 'circle', move: 'chase', ranged: true },
-    weaver:   { hp: 22 * hpScale,  speed: ss(110), r: 15, dmg: ds(11), xp: xs(1), color: '#ff8af0', shape: 'circle', move: 'weave' },
-    bomber:   { hp: 37 * hpScale,  speed: ss(74),  r: 18, dmg: ds(31), xp: xs(2), color: '#ff7b3d', shape: 'square', move: 'bomb' },
-    orbiter:  { hp: 30 * hpScale,  speed: ss(120), r: 15, dmg: ds(14), xp: xs(2), color: '#8a7bff', shape: 'tri',    move: 'orbit', ranged: true }, // 距離を保って旋回しながら撃つ
-    brute:    { hp: 190 * hpScale, speed: ss(52),  r: 29, dmg: ds(42), xp: xs(4), color: '#ff5c3d', shape: 'hex',    move: 'chase' },                // 鈍重だが一撃が重い
+    grunt:    { hp: 24,  speed: ss(68),  r: 16, dmg: ds(14), xp: xs(1), color: '#ff5c8a', shape: 'circle', move: 'chase' },
+    swift:    { hp: 16,  speed: ss(142), r: 13, dmg: ds(11), xp: xs(1), color: '#ffd23f', shape: 'tri',    move: 'chase' },
+    tank:     { hp: 120, speed: ss(58),  r: 26, dmg: ds(25), xp: xs(3), color: '#7c5cff', shape: 'hex',    move: 'chase' },
+    splitter: { hp: 46,  speed: ss(60),  r: 19, dmg: ds(15), xp: xs(2), color: '#6bffb0', shape: 'square', move: 'chase', splits: true },
+    spitter:  { hp: 38,  speed: ss(54),  r: 17, dmg: ds(15), xp: xs(2), color: '#ff9b3d', shape: 'circle', move: 'chase', ranged: true },
+    weaver:   { hp: 22,  speed: ss(110), r: 15, dmg: ds(11), xp: xs(1), color: '#ff8af0', shape: 'circle', move: 'weave' },
+    bomber:   { hp: 37,  speed: ss(74),  r: 18, dmg: ds(31), xp: xs(2), color: '#ff7b3d', shape: 'square', move: 'bomb' },
+    orbiter:  { hp: 30,  speed: ss(120), r: 15, dmg: ds(14), xp: xs(2), color: '#8a7bff', shape: 'tri',    move: 'orbit', ranged: true }, // 距離を保って旋回しながら撃つ
+    brute:    { hp: 190, speed: ss(52),  r: 29, dmg: ds(42), xp: xs(4), color: '#ff5c3d', shape: 'hex',    move: 'chase' },                // 鈍重だが一撃が重い
     // ミニボスXPは専用の急カーブ：84×(1+t/120)。従来(28×(1+t/200))比で3.6〜4.4倍、
     // 後半のボスほど報酬が大きくなる（ユーザー要望：3倍以上・時間で変わるように）
-    miniboss: { hp: 520 * hpScale, speed: ss(76),  r: 45, dmg: ds(30), xp: Math.ceil(84 * (1 + t / 120)), color: '#4be0ff', shape: 'boss',  move: 'chase' }, // HP1.3倍・サイズ1.5倍（ユーザー要望）
+    miniboss: { hp: 780, speed: ss(76),  r: 45, dmg: ds(30), xp: Math.ceil(84 * (1 + t / 120)), color: '#4be0ff', shape: 'boss',  move: 'chase' }, // HP1.5倍（ユーザー要望）
   };
 }
 
@@ -604,8 +605,8 @@ function buildUpgradePool() {
   } else if (!w.thunder.evolved) {
     pool.push({ id: 'thunder_dmg', name: 'サンダー強化', desc: '落雷の威力 +10', icon: ic('thunder'),
       apply: () => { w.thunder.dmg += 10; w.thunder.lv++; } });
-    pool.push({ id: 'thunder_chain', name: '連鎖拡大', desc: '連鎖する敵の数 +2', icon: ic('thunder'), max: 9, lvOf: () => w.thunder.chains,
-      apply: () => { w.thunder.chains += 2; w.thunder.lv++; } });
+    pool.push({ id: 'thunder_rate', name: 'サンダー加速', desc: '落雷の発動間隔を短縮', icon: ic('thunder'), max: 0.9, lvOf: () => w.thunder.interval,
+      apply: () => { w.thunder.interval = Math.max(0.9, w.thunder.interval * 0.82); w.thunder.lv++; } });
     if (w.thunder.lv >= 4) {
       pool.push({ id: 'thunder_evo', name: 'サンダーストーム', desc: '【サンダー進化】高速の落雷が無数に連鎖', icon: ic('thunder'), isEvo: true,
         apply: () => { w.thunder.evolved = true; w.thunder.chains += 4; w.thunder.dmg += 14; w.thunder.interval = Math.max(0.5, w.thunder.interval * 0.6); } });
@@ -613,6 +614,8 @@ function buildUpgradePool() {
   } else {
     pool.push({ id: 'thunder_dmg2', name: 'ストーム増幅', desc: '落雷の威力 +18', icon: ic('thunder'),
       apply: () => { w.thunder.dmg += 18; } });
+    pool.push({ id: 'thunder_rate2', name: 'ストーム加速', desc: '落雷の発動間隔をさらに短縮', icon: ic('thunder'), max: 0.35, lvOf: () => w.thunder.interval,
+      apply: () => { w.thunder.interval = Math.max(0.35, w.thunder.interval * 0.85); } });
   }
 
   // ---- フロスト（冷気・減速） ----
@@ -987,12 +990,22 @@ function updatePlayerMovement(dt) {
       const dx = p.x - b.x, dy = p.y - b.y; const d = Math.hypot(dx, dy) || 1;
       if (d < 120) { const wgt = (120 - d) / 120; ax += (dx / d) * wgt * 1.7; ay += (dy / d) * wgt * 1.7; }
     }
+    // 雑魚回避力は密集時に頭打ちにする（大量の雑魚に囲まれてボスに永久に近づけなくなるのを防ぐ）
+    const aMag = Math.hypot(ax, ay);
+    if (aMag > 2.5) { ax = ax / aMag * 2.5; ay = ay / aMag * 2.5; }
     let gg = null, gd = Infinity;
     for (const gem of g.gems) { const dd = dist2(gem.x, gem.y, p.x, p.y); if (dd < gd) { gd = dd; gg = gem; } }
     let gx = 0, gy = 0;
     if (gg) { const d = Math.hypot(gg.x - p.x, gg.y - p.y) || 1; gx = (gg.x - p.x) / d; gy = (gg.y - p.y) / d; }
-    mx += ax * 2.0 + gx * 1.1 - p.x * 0.0006;
-    my += ay * 2.0 + gy * 1.1 - p.y * 0.0006;
+    // ボスから離れすぎている場合は近づく（sniper等の距離を取るボス相手に膠着しないように。遠いほど強く引き寄せる）
+    let bx = 0, by = 0;
+    for (const e of g.enemies) {
+      if (!e.boss && e.kind !== 'miniboss') continue;
+      const dx = e.x - p.x, dy = e.y - p.y; const d = Math.hypot(dx, dy) || 1;
+      if (d > 260) { const wgt = Math.min(3, (d - 260) / 150); bx += (dx / d) * wgt; by += (dy / d) * wgt; }
+    }
+    mx += ax * 2.0 + gx * 1.1 + bx * 1.4 - p.x * 0.0006;
+    my += ay * 2.0 + gy * 1.1 + by * 1.4 - p.y * 0.0006;
   }
   // ラッシュタイマーの減算
   if (p.rushTimer > 0) p.rushTimer -= dt;
@@ -1358,7 +1371,7 @@ function updateSpawning(dt) {
   const cap = Math.min(70, 22 + Math.floor(g.time / 75) * 2);
 
   g.spawnTimer -= dt;
-  const hasBoss = g.enemies.some(e => !e.dead && (e.boss || e.kind === 'miniboss'));
+  let hasBoss = g.enemies.some(e => !e.dead && (e.boss || e.kind === 'miniboss'));
   const baseInterval = Math.max(0.20, (1.10 - g.time * 0.011));
   // ボス戦中はモブを絞る（ボスが目立つように）
   const interval = hasBoss ? Math.max(4.0, baseInterval * 6) : baseInterval;
@@ -1399,19 +1412,21 @@ function updateSpawning(dt) {
   }
   if (g.hordeCd > 0) g.hordeCd -= dt;
 
-  // ミニボス（ウェーブ境界で出現。種類をローテして固有攻撃を見せる）
-  if (g.time >= g.miniBossAt && g.time < CLEAR_TIME) {
+  // ミニボス（ウェーブ境界で出現。種類をローテして固有攻撃を見せる。倒すまで次は出さない・5体で打ち止め・ユーザー要望）
+  if (!hasBoss && g.miniBossCount < 5 && g.time >= g.miniBossAt) {
     // ローテはスキル入手ペースに合わせる（ユーザー要望）：
-    // 1匹目=弾幕型（まだダッシュ未入手→歩いて避けられるリングのみ）、2匹目=突進型（ダッシュ必須）、
-    // 3匹目=爆撃型（範囲外へ移動 or ダッシュ）、4匹目=瞬移型、5匹目=狙撃型（5種ローテで使い回し感を無くす・ユーザー要望）
-    const types = ['spreader', 'charger', 'bomber', 'blinker', 'sniper'];
+    // 1匹目=弾幕型（まだダッシュ未入手→歩いて避けられるリングのみ）、2匹目=瞬移型、
+    // 3匹目=爆撃型、4匹目=狙撃型（弾幕強化版）、5匹目=突進型（高速・高頻度）
+    const types = ['spreader', 'blinker', 'bomber', 'sniper', 'charger'];
     const bt = types[g.miniBossCount % types.length];
     const names = { spreader: '弾幕型', charger: '突進型', bomber: '爆撃型', blinker: '瞬移型', sniper: '狙撃型' };
     const bossColors = { spreader: '#00d4ff', charger: '#ff4444', bomber: '#ff9b3d', blinker: '#ffcc00', sniper: '#39ff14' };
     const mb = spawnEnemy('miniboss', { bossType: bt });
     // プレイヤーレベルで補正（火力インフレに対抗）＋タイプ別カラー設定
     if (mb) {
-      const mbLvScale = 1 + Math.max(0, p.level - 6) * 0.08;
+      // レベル補正は上限を設けて頭打ちに（撃破が長引く→雑魚でレベルが上がる→次のミニボスがさらに硬くなる、
+      // という無限硬化の死のスパイラルを防ぐため。上限なしだとAI検証で4体目以降が事実上倒せなくなっていた）
+      const mbLvScale = 1 + Math.min(20, Math.max(0, p.level - 6)) * 0.08;
       mb.hp = Math.round(mb.hp * mbLvScale); mb.maxHp = mb.hp;
       mb.color = bossColors[bt] || '#4be0ff';
       if (bt === 'charger') { mb.r = 55; } // 突進型は0.8倍サイズ・移動速度は通常のまま（突進時のみ高速・ユーザー要望）
@@ -1419,14 +1434,15 @@ function updateSpawning(dt) {
     }
     g.miniBossCount++;
     g.miniBossAt += WAVE_LEN;
+    hasBoss = true; // 同一フレーム内でラスボスと同時湧きしないようにする（要求4: ボス同時出現禁止）
     setBanner('MINI BOSS', names[bt] + 'の強敵が現れた！', bossColors[bt] || '#4be0ff');
     floatText(p.x, p.y - 40, 'MINI BOSS!', bossColors[bt] || '#4be0ff', true);
     Sound.boss(); shake(12);
     g.screenFlash = { color: bossColors[bt] || '#4be0ff', life: 0.7, max: 0.7 };
   }
 
-  // ラスボス（規定時間で1回）
-  if (!g.finalBossSpawned && g.time >= CLEAR_TIME) {
+  // ラスボス（時間経過ではなく、ミニボス5体を撃破し終えた後に1回出現・ユーザー要望）
+  if (!g.finalBossSpawned && !hasBoss && g.miniBossCount >= 5) {
     spawnFinalBoss();
   }
 }
@@ -1436,9 +1452,11 @@ function spawnFinalBoss() {
   const g = game, p = g.player;
   g.finalBossSpawned = true;
   const ang = Math.random() * TAU, rad = 420;
-  // プレイヤーのレベルが高いほどボスも強くなる（火力インフレ対策）
-  const lvScale = 1 + Math.max(0, p.level - 8) * 0.09;
-  const hpBase = 16900 * lvScale; // ボスHP 1.3倍（ユーザー要望）
+  // プレイヤーのレベルが高いほどボスも強くなる（火力インフレ対策）。
+  // ただし上限なしだとミニボス撃破が長引く→雑魚狩りでレベルが上がる→ラスボスがさらに硬くなる、
+  // という無限硬化の死のスパイラルを招くため頭打ちにする（ミニボス側のmbLvScaleと同じ考え方）
+  const lvScale = 1 + Math.min(20, Math.max(0, p.level - 8)) * 0.09;
+  const hpBase = 25350 * lvScale; // ボスHP 1.5倍（ユーザー要望）
   const bx = p.x + Math.cos(ang) * rad, by = p.y + Math.sin(ang) * rad;
   const e = {
     kind: 'boss', boss: true, bossType: 'overlord',
@@ -1570,43 +1588,58 @@ function updateBossBehavior(e, dt, dx, dy, d) {
     }
   }
   const bt = e.bossType;
+  // HP50%を下から通過した瞬間に1回だけ「猛攻モード」へ移行。5種ミニボス共通で攻撃バリエーションを増やす（ユーザー要望）
+  if (bt !== 'overlord' && !e.miniRaged && e.hp <= e.maxHp * 0.5) {
+    e.miniRaged = true;
+    setBanner('RAGE MODE', '猛攻モードに移行した！', e.color || '#ff4444');
+    floatText(e.x, e.y - e.r - 10, '猛攻モード!', e.color || '#ff4444', true);
+    shake(10);
+  }
+  const p2 = !!e.miniRaged;
   if (bt === 'spreader') {
     // 1匹目のボス：ダッシュ未入手でも歩いて避けられる全方位リングのみ（包囲はやらない・ユーザー要望）
+    // 猛攻モード：内外二重リングで密度を上げる
     if (e.atkCd <= 0 && d < 620) {
-      enemyRing(e, 12, 205, 22, '#4be0ff');
-      e.atkCd = 2.6;
+      enemyRing(e, p2 ? 16 : 12, 205, 22, '#4be0ff');
+      if (p2) enemyRing(e, 10, 120, 22, '#00ffee');
+      e.atkCd = p2 ? 2.0 : 2.6;
     }
   } else if (bt === 'charger') {
-    // 2秒のタメ→発射の瞬間に狙いを定めて長距離突進（プレイヤーを通り過ぎるまで走る・ユーザー要望）
-    // 発動間隔8秒＝スキルCD（最大6秒）より長いので、毎回ダッシュで確実にかわせる設計
+    // 5匹目＝突進型：タメ→発射の瞬間に狙いを定めて長距離突進（プレイヤーを通り過ぎるまで走る・ユーザー要望）
+    // ローテ最後のボスとして個別強化：タメ短縮・速度アップ・CD短縮でより速く高頻度に突進する（ユーザー要望）
+    // 猛攻モード：さらにタメ短縮＋突進速度アップで畳みかける
     if (e.chargeWarn > 0) {
       e.chargeWarn -= dt;
       e.hitFlash = 0.06; // 赤くする（hitFlashを流用）
       if (e.chargeWarn <= 0) { // 予兆終了→この瞬間のプレイヤー位置に照準して突進（歩き回避を許さない）
-        e.chargeT = 1.5; e.cvx = dx * 420; e.cvy = dy * 420; // 速度420=初期プレイヤー速度210の2倍（ユーザー要望）
+        const sp = p2 ? 560 : 480; // 速度480=初期プレイヤー速度210の約2.3倍（個別強化・ユーザー要望）
+        e.chargeT = 1.5; e.cvx = dx * sp; e.cvy = dy * sp;
         burst(e.x, e.y, '#ff3030', 18, 220);
         shake(6);
       }
     } else if (e.chargeT > 0) { e.chargeT -= dt; e.x += e.cvx * dt; e.y += e.cvy * dt; }
     else if (e.atkCd <= 0 && d < 620) {
-      // 予兆開始（2秒タメてから突進・ユーザー要望）
-      e.chargeWarn = 2.0; e.atkCd = 8.0;
+      // 予兆開始（タメ1.5秒→突進・個別強化でタメ短縮＆高頻度化・ユーザー要望）
+      e.chargeWarn = p2 ? 1.0 : 1.5; e.atkCd = p2 ? 3.5 : 6.0;
       floatText(e.x, e.y - e.r, '⚠ 突進!', '#ff4444');
       shake(4);
     }
   } else if (bt === 'bomber') {
     // 爆撃型：プレイヤー周辺の複数地点に予告円を出し、時間差で爆弾の雨を降らせる（円の外へ移動して回避）
+    // 猛攻モード：弾数増加＋CD短縮
     if (e.atkCd <= 0) {
-      for (let k = 0; k < 9; k++) {
-        const ang = Math.random() * TAU, rr = Math.sqrt(Math.random()) * 190;
-        const fuse = 0.9 + k * 0.13;
+      const n = p2 ? 14 : 9;
+      for (let k = 0; k < n; k++) {
+        const ang = Math.random() * TAU, rr = Math.sqrt(Math.random()) * (p2 ? 220 : 190);
+        const fuse = 0.9 + k * (p2 ? 0.1 : 0.13);
         g.bombs.push({ x: g.player.x + Math.cos(ang) * rr, y: g.player.y + Math.sin(ang) * rr, t: fuse, max: fuse, r: 78, dmg: 44 });
       }
       floatText(e.x, e.y - e.r, '💣 爆撃!', '#ff9b3d');
-      e.atkCd = 4.5;
+      e.atkCd = p2 ? 3.3 : 4.5;
     }
   } else if (bt === 'blinker') {
     // 予告フェーズ：ワープ先に0.7秒間警告マーカーを表示してから実際に移動
+    // 猛攻モード：予告短縮＋近距離ワープ＋リング弾数増加でCDも短縮
     if (e.warpTimer > 0) {
       e.warpTimer -= dt;
       if (e.warpTimer <= 0) {
@@ -1614,31 +1647,33 @@ function updateBossBehavior(e, dt, dx, dy, d) {
         burst(e.x, e.y, '#c78bff', 16, 220);
         e.x = e.warpTarget.x; e.y = e.warpTarget.y;
         burst(e.x, e.y, '#c78bff', 22, 260);
-        enemyRing(e, 18, 235, 26, '#c78bff');
+        enemyRing(e, p2 ? 26 : 18, 235, 26, '#c78bff');
         floatText(e.x, e.y - e.r, 'ブリンク!', '#c78bff');
         e.warpTarget = null;
-        e.atkCd = 2.6;
+        e.atkCd = p2 ? 1.8 : 2.6;
       }
     } else if (e.atkCd <= 0) {
       // 予告開始：0.7秒後にワープする先を決定して表示
-      const ang = Math.random() * TAU, rr = 130;
+      const ang = Math.random() * TAU, rr = p2 ? 95 : 130;
       e.warpTarget = { x: g.player.x + Math.cos(ang) * rr, y: g.player.y + Math.sin(ang) * rr };
-      e.warpTimer = 0.7;
+      e.warpTimer = p2 ? 0.5 : 0.7;
       floatText(e.warpTarget.x, e.warpTarget.y - 20, '⚠', '#ffff00');
     }
   } else if (bt === 'sniper') {
-    // 狙撃型：距離を保って旋回しながら、丸い弾幕ではなく狙い澄ました単発弾を連続で撃ってくる（ユーザー要望）
+    // 4匹目＝狙撃型（弾幕強化版）：距離を保って旋回しながら、丸い弾幕ではなく狙い澄ました単発弾を連続で撃ってくる（ユーザー要望）
+    // ローテ4番目の個別強化として基礎の発射数を増加（ユーザー要望）。猛攻モードでさらに連射数増加＋弾速アップ＋CD短縮
     if ((e.sniperBurst || 0) > 0) {
       e.sniperBurst -= dt;
       if (e.sniperBurst <= 0) {
         const ang = Math.atan2(g.player.y - e.y, g.player.x - e.x);
-        game.enemyBullets.push({ x: e.x, y: e.y, vx: Math.cos(ang) * 430, vy: Math.sin(ang) * 430, r: 6, dmg: 24, life: 3, color: '#39ff14' });
+        const spd = p2 ? 480 : 430;
+        game.enemyBullets.push({ x: e.x, y: e.y, vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd, r: 6, dmg: 24, life: 3, color: '#39ff14' });
         e.sniperShots--;
-        e.sniperBurst = e.sniperShots > 0 ? 0.26 : 0;
-        if (e.sniperShots <= 0) e.atkCd = 2.3;
+        e.sniperBurst = e.sniperShots > 0 ? (p2 ? 0.20 : 0.26) : 0;
+        if (e.sniperShots <= 0) e.atkCd = p2 ? 1.6 : 2.3;
       }
     } else if (e.atkCd <= 0 && d < 640) {
-      e.sniperShots = 4; e.sniperBurst = 0.4; // 0.4秒タメてから4連射（1発ずつ正確に狙う）
+      e.sniperShots = p2 ? 8 : 6; e.sniperBurst = 0.4; // 0.4秒タメてから連射（発射数増加・個別強化）
       floatText(e.x, e.y - e.r, '⚠ 照準!', '#39ff14');
     }
   } else if (bt === 'overlord') {
@@ -1954,6 +1989,7 @@ function gameOver() {
 
 function winGame() {
   state = 'win';
+  game.winLockUntil = performance.now() + 3000; // クリア直後3秒は誤タップで即タイトルへ戻らないようロック（ユーザー要望）
   game.finalScore = computeScore() + 5000;
   if (game.finalScore > best) {
     best = game.finalScore; game.newBest = true;
@@ -3148,7 +3184,7 @@ function drawHUD() {
   const label = 'WAVE ' + (game.wave + 1) + '  ' + theme.name;
   ctx.fillText(label, W - 16, 70);
   // ミニボス出現30秒前から警告カウントダウン（HUD右上）
-  if (!game.finalBossSpawned) {
+  if (!game.finalBossSpawned && game.miniBossCount < 5) {
     const toNext = game.miniBossAt - game.time;
     const bossAlive = game.enemies.some(e => !e.dead && (e.kind === 'miniboss' || e.boss));
     if (!bossAlive && toNext > 0 && toNext < 30) {
@@ -3158,16 +3194,16 @@ function drawHUD() {
     }
   }
 
-  // クリアまでの進行バー（画面上部中央）
+  // クリアまでの進行バー（画面上部中央）：ミニボス5体の撃破数ベース（ユーザー要望）
   {
     const bw = 300, bx = (W - bw) / 2, by = 14;
-    const prog = clamp(game.time / CLEAR_TIME, 0, 1);
+    const prog = clamp(game.miniBossCount / 5, 0, 1);
     ctx.fillStyle = 'rgba(0,0,0,.4)'; ctx.fillRect(bx, by, bw, 8);
     ctx.fillStyle = game.finalBossSpawned ? '#ff4be0' : theme.accent;
     ctx.fillRect(bx, by, bw * prog, 8);
     ctx.strokeStyle = 'rgba(255,255,255,.25)'; ctx.lineWidth = 1; ctx.strokeRect(bx, by, bw, 8);
     ctx.fillStyle = '#9fb6d8'; ctx.font = '10px sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText(game.finalBossSpawned ? 'ラスボスを倒せ！' : 'クリアまで ' + Math.ceil((CLEAR_TIME - game.time)) + 's', W / 2, by + 20);
+    ctx.fillText(game.finalBossSpawned ? 'ラスボスを倒せ！' : 'ミニボス ' + game.miniBossCount + '/5 撃破', W / 2, by + 20);
   }
 
   // ボス・ミニボスのHPバーを画面下部中央に大きく表示（Cycle6）
@@ -3733,6 +3769,8 @@ function handleMenuKey(k) {
     if (k === 'c' || k === ' ' || k === 'enter') continueRun();
     else if (k === 'r') startGame('normal');
   } else if (state === 'win') {
+    // クリア直後3秒は入力を無視（すぐタップして戻ってしまう誤操作対策・ユーザー要望）
+    if (performance.now() < (game.winLockUntil || 0)) return;
     if (k === 'r' || k === ' ' || k === 'enter') startGame('normal');
   } else if (state === 'playing') {
     // Space でアクティブスキル発動（宝箱で入手するまでは何も起きない）
@@ -3754,7 +3792,11 @@ function handleClick() {
   // 宝箱アイテムの説明カードはクリック/タップで閉じて再開
   if (state === 'chestitem') { game.chestCard = null; state = 'playing'; return; }
   if (state === 'title') startGame('normal');
-  else if (state === 'win') startGame('normal');
+  else if (state === 'win') {
+    // クリア直後3秒は入力を無視（すぐタップして戻ってしまう誤操作対策・ユーザー要望）
+    if (performance.now() < (game.winLockUntil || 0)) return;
+    startGame('normal');
+  }
   else if (state === 'gameover') {
     // ボタンの外をタップしても何も起きない（うっかり「最初から」を防ぐ）
     if (inRect(goContinueRect)) continueRun();
