@@ -458,7 +458,7 @@ function enemyKinds(t) {
     brute:    { hp: 190, speed: ss(52),  r: 29, dmg: ds(42), xp: xs(4), color: '#ff5c3d', shape: 'hex',    move: 'chase' },                // 鈍重だが一撃が重い
     // ミニボスXPは専用の急カーブ：84×(1+t/120)。従来(28×(1+t/200))比で3.6〜4.4倍、
     // 後半のボスほど報酬が大きくなる（ユーザー要望：3倍以上・時間で変わるように）
-    miniboss: { hp: 780, speed: ss(76),  r: 45, dmg: ds(30), xp: Math.ceil(84 * (1 + t / 120)), color: '#4be0ff', shape: 'boss',  move: 'chase' }, // HP1.5倍（ユーザー要望）
+    miniboss: { hp: 1900, speed: ss(76),  r: 45, dmg: ds(30), xp: Math.ceil(84 * (1 + t / 120)), color: '#4be0ff', shape: 'boss',  move: 'chase' }, // ここは出現順で強くなる前の基礎値（1匹目相当）。2〜5匹目はorderMulで加算（ユーザー要望：終盤ほど少しずつ強く）
   };
 }
 
@@ -654,7 +654,8 @@ function buildUpgradePool() {
 
   // ---- ステータス系（いつでも候補） ----
   // レベルアップ回数を減らす代わりに、1回あたりの伸びを強化（ユーザー要望）
-  pool.push({ id: 'maxhp', name: '体力増強', desc: '最大HP +45（HPを45回復）', icon: '❤', apply: () => { p.maxHp += 45; p.hp = Math.min(p.maxHp, p.hp + 45); } });
+  // HPだけ積む戦略が青天井で突出して強くなっていたため上限を設定（AI検証で判明・ユーザー要望の調整対象）
+  pool.push({ id: 'maxhp', name: '体力増強', desc: '最大HP +45（HPを45回復）', icon: '❤', max: 6, lvOf: () => p.upgradeCount['maxhp'] || 0, apply: () => { p.maxHp += 45; p.hp = Math.min(p.maxHp, p.hp + 45); } });
   pool.push({ id: 'speed', name: '俊足', desc: '移動速度 +14%', icon: '👟', apply: () => { p.speed *= 1.14; } });
   pool.push({ id: 'power', name: '攻撃力上昇', desc: '全武器ダメージ +17%', icon: '💢', apply: () => { p.dmgMul *= 1.17; } });
   // 再生は上限ありで青天井にしない（毎秒回復が敵火力を上回って不死化するのを防ぐ）
@@ -1427,7 +1428,13 @@ function updateSpawning(dt) {
       // レベル補正は上限を設けて頭打ちに（撃破が長引く→雑魚でレベルが上がる→次のミニボスがさらに硬くなる、
       // という無限硬化の死のスパイラルを防ぐため。上限なしだとAI検証で4体目以降が事実上倒せなくなっていた）
       const mbLvScale = 1 + Math.min(20, Math.max(0, p.level - 6)) * 0.08;
-      mb.hp = Math.round(mb.hp * mbLvScale); mb.maxHp = mb.hp;
+      // 出現順で少しずつ強くなる（1匹目=等倍〜5匹目=約1.7倍）。ラスボスHPだけを吊り上げる単発調整ではなく、
+      // ローテ全体に緩やかな傾斜をつけて終盤ほど硬く・痛くする（ユーザー要望）
+      const orderMul = 1 + g.miniBossCount * 0.18;
+      const dmgOrderMul = 1 + g.miniBossCount * 0.13;
+      mb.hp = Math.round(mb.hp * mbLvScale * orderMul); mb.maxHp = mb.hp;
+      mb.dmg = Math.round(mb.dmg * dmgOrderMul);
+      mb.dmgMul = dmgOrderMul; // 弾幕系攻撃(enemyRing/爆弾/狙撃弾)のダメージにも同率を適用
       mb.color = bossColors[bt] || '#4be0ff';
       if (bt === 'charger') { mb.r = 55; } // 突進型は0.8倍サイズ・移動速度は通常のまま（突進時のみ高速・ユーザー要望）
       if (bt === 'sniper') { mb.move = 'orbit'; } // 狙撃型は一定距離を保って旋回しつつ狙い撃つ
@@ -1456,7 +1463,12 @@ function spawnFinalBoss() {
   // ただし上限なしだとミニボス撃破が長引く→雑魚狩りでレベルが上がる→ラスボスがさらに硬くなる、
   // という無限硬化の死のスパイラルを招くため頭打ちにする（ミニボス側のmbLvScaleと同じ考え方）
   const lvScale = 1 + Math.min(20, Math.max(0, p.level - 8)) * 0.09;
-  const hpBase = 25350 * lvScale; // ボスHP 1.5倍（ユーザー要望）
+  // ラスボスHPは単独の特別な数値にせず、ミニボスの出現順スケーリングの延長線上に位置づける
+  // （ラスボスHPだけを吊り上げる調整はしない・ユーザー要望）。5匹目ミニボスの出現順倍率(1.72倍)を
+  // 引き継いだ「6体目」相当として、ミニボス基礎HPの約20倍をベースにする
+  const finalMbOrderMul = 1 + 4 * 0.18;
+  const mbBaseHp = enemyKinds(g.time).miniboss.hp;
+  const hpBase = mbBaseHp * finalMbOrderMul * 20 * lvScale;
   const bx = p.x + Math.cos(ang) * rad, by = p.y + Math.sin(ang) * rad;
   const e = {
     kind: 'boss', boss: true, bossType: 'overlord',
@@ -1600,8 +1612,9 @@ function updateBossBehavior(e, dt, dx, dy, d) {
     // 1匹目のボス：ダッシュ未入手でも歩いて避けられる全方位リングのみ（包囲はやらない・ユーザー要望）
     // 猛攻モード：内外二重リングで密度を上げる
     if (e.atkCd <= 0 && d < 620) {
-      enemyRing(e, p2 ? 16 : 12, 205, 22, '#4be0ff');
-      if (p2) enemyRing(e, 10, 120, 22, '#00ffee');
+      const rd = Math.round(22 * (e.dmgMul || 1));
+      enemyRing(e, p2 ? 16 : 12, 205, rd, '#4be0ff');
+      if (p2) enemyRing(e, 10, 120, rd, '#00ffee');
       e.atkCd = p2 ? 2.0 : 2.6;
     }
   } else if (bt === 'charger') {
@@ -1629,10 +1642,11 @@ function updateBossBehavior(e, dt, dx, dy, d) {
     // 猛攻モード：弾数増加＋CD短縮
     if (e.atkCd <= 0) {
       const n = p2 ? 14 : 9;
+      const bd = Math.round(44 * (e.dmgMul || 1));
       for (let k = 0; k < n; k++) {
         const ang = Math.random() * TAU, rr = Math.sqrt(Math.random()) * (p2 ? 220 : 190);
         const fuse = 0.9 + k * (p2 ? 0.1 : 0.13);
-        g.bombs.push({ x: g.player.x + Math.cos(ang) * rr, y: g.player.y + Math.sin(ang) * rr, t: fuse, max: fuse, r: 78, dmg: 44 });
+        g.bombs.push({ x: g.player.x + Math.cos(ang) * rr, y: g.player.y + Math.sin(ang) * rr, t: fuse, max: fuse, r: 78, dmg: bd });
       }
       floatText(e.x, e.y - e.r, '💣 爆撃!', '#ff9b3d');
       e.atkCd = p2 ? 3.3 : 4.5;
@@ -1647,7 +1661,7 @@ function updateBossBehavior(e, dt, dx, dy, d) {
         burst(e.x, e.y, '#c78bff', 16, 220);
         e.x = e.warpTarget.x; e.y = e.warpTarget.y;
         burst(e.x, e.y, '#c78bff', 22, 260);
-        enemyRing(e, p2 ? 26 : 18, 235, 26, '#c78bff');
+        enemyRing(e, p2 ? 26 : 18, 235, Math.round(26 * (e.dmgMul || 1)), '#c78bff');
         floatText(e.x, e.y - e.r, 'ブリンク!', '#c78bff');
         e.warpTarget = null;
         e.atkCd = p2 ? 1.8 : 2.6;
@@ -1667,7 +1681,7 @@ function updateBossBehavior(e, dt, dx, dy, d) {
       if (e.sniperBurst <= 0) {
         const ang = Math.atan2(g.player.y - e.y, g.player.x - e.x);
         const spd = p2 ? 480 : 430;
-        game.enemyBullets.push({ x: e.x, y: e.y, vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd, r: 6, dmg: 24, life: 3, color: '#39ff14' });
+        game.enemyBullets.push({ x: e.x, y: e.y, vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd, r: 6, dmg: Math.round(24 * (e.dmgMul || 1)), life: 3, color: '#39ff14' });
         e.sniperShots--;
         e.sniperBurst = e.sniperShots > 0 ? (p2 ? 0.20 : 0.26) : 0;
         if (e.sniperShots <= 0) e.atkCd = p2 ? 1.6 : 2.3;
