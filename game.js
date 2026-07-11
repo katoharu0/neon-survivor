@@ -127,7 +127,7 @@ function waveIndex(t) { return clamp(Math.floor(t / WAVE_LEN), 0, WAVES.length -
 // 武器のメタ情報（アイコン・基本名・進化名）。進化後も「どの武器か」分かるよう一元管理
 const WEAPON_META = {
   bolt:    { icon: '⚡', base: 'ボルト',     evo: 'スキャッターボルト' },
-  orbit:   { icon: '🛰', base: 'オービット', evo: 'サテライトリング' },
+  orbit:   { icon: '🪃', base: 'ブーメラン', evo: 'ツインブーメラン' },
   nova:    { icon: '💥', base: 'ノヴァ',     evo: 'スーパーノヴァ' },
   thunder: { icon: '🔱', base: 'サンダー',   evo: 'サンダーストーム' },
   frost:   { icon: '❄', base: 'フロスト',    evo: 'アブソリュートゼロ' },
@@ -385,8 +385,8 @@ function newPlayer() {
     weapons: {
       // オートエイムの弾。最初から所持
       bolt:    { lv: 1, evolved: false, cd: 0, interval: 0.50, dmg: 14, count: 1, speed: 460, pierce: 0, spread: 0.18 },
-      // 体の周りを回る光弾（それでも「使いづらい割に弱い」との声を受け再強化：威力を底上げ）
-      orbit:   { lv: 0, evolved: false, cd: 0, count: 3, dmg: 22, radius: 100, rotSpeed: 3.0, angle: 0 },
+      // 一定間隔で放たれ、一定距離まで飛んで戻ってくる往復斬撃（「オービットは当てにくく弱い」との声を受けコンセプト変更）
+      orbit:   { lv: 0, evolved: false, cd: 0, count: 1, dmg: 30, interval: 1.1, speed: 480, range: 260, angle: 0, blades: [] },
       // 周期的に全方位へ広がる衝撃波
       nova:    { lv: 0, evolved: false, cd: 0, interval: 3.0, dmg: 26, radius: 230, speed: 520 },
       // 最寄りの敵に落雷し、近くの敵へ連鎖する
@@ -585,20 +585,20 @@ function buildUpgradePool() {
       apply: () => { w.bolt.dmg += 12; } });
   }
 
-  // ---- オービット（周回弾） ----
+  // ---- ブーメラン（往復斬撃） ----
   if (w.orbit.lv === 0) {
-    pool.push({ id: 'orbit_get', name: 'オービット', desc: '体の周りを回る光弾を装備', icon: ic('orbit'), isNew: true, apply: () => { w.orbit.lv = 1; } });
+    pool.push({ id: 'orbit_get', name: 'ブーメラン', desc: '一定間隔で放たれ、飛んで戻ってくる斬撃を装備', icon: ic('orbit'), isNew: true, apply: () => { w.orbit.lv = 1; } });
   } else if (!w.orbit.evolved) {
-    pool.push({ id: 'orbit_count', name: 'オービット追加', desc: '周回する光弾 +1', icon: ic('orbit'), max: 7, lvOf: () => w.orbit.count,
+    pool.push({ id: 'orbit_count', name: 'ブーメラン追加', desc: '同時に放つ数 +1', icon: ic('orbit'), max: 4, lvOf: () => w.orbit.count,
       apply: () => { w.orbit.count += 1; w.orbit.lv++; } });
-    pool.push({ id: 'orbit_dmg', name: 'オービット強化', desc: '周回弾の威力 +12', icon: ic('orbit'),
+    pool.push({ id: 'orbit_dmg', name: 'ブーメラン強化', desc: '斬撃の威力 +12', icon: ic('orbit'),
       apply: () => { w.orbit.dmg += 12; w.orbit.lv++; } });
-    if (w.orbit.count >= 4) {
-      pool.push({ id: 'orbit_evo', name: 'サテライトリング', desc: '【オービット進化】巨大化＆高速回転で薙ぎ払う', icon: ic('orbit'), isEvo: true,
-        apply: () => { w.orbit.evolved = true; w.orbit.radius *= 1.5; w.orbit.rotSpeed *= 1.7; w.orbit.dmg += 18; w.orbit.count += 1; } });
+    if (w.orbit.count >= 3) {
+      pool.push({ id: 'orbit_evo', name: 'ツインブーメラン', desc: '【ブーメラン進化】飛距離・速度が増し威力も上昇', icon: ic('orbit'), isEvo: true,
+        apply: () => { w.orbit.evolved = true; w.orbit.range *= 1.4; w.orbit.speed *= 1.3; w.orbit.dmg += 18; w.orbit.count += 1; } });
     }
   } else {
-    pool.push({ id: 'orbit_dmg2', name: 'サテライト増幅', desc: 'サテライトの威力 +20', icon: ic('orbit'),
+    pool.push({ id: 'orbit_dmg2', name: 'ブーメラン増幅', desc: 'ブーメランの威力 +20', icon: ic('orbit'),
       apply: () => { w.orbit.dmg += 20; } });
   }
 
@@ -818,7 +818,9 @@ function burst(x, y, color, n, power) {
 function floatText(x, y, txt, color, big) {
   game.texts.push({ x, y, txt, color: color || '#fff', life: big ? 1.0 : 0.7, max: big ? 1.0 : 0.7, vy: -38, big: !!big });
 }
-function shake(amount) { cam.shake = Math.min(24, cam.shake + amount); }
+// 画面シェイク演出は無効化（「画面揺らさないでほしい」とのユーザー要望）。
+// 呼び出し側は多数（爆撃・被弾・ボス撃破等）あるため、発生源のここ1箇所で止める。
+function shake(amount) {}
 
 // 拡大する衝撃波リングを発生（敵を巻き込む）。爆発・ノヴァ共通
 function makeShock(x, y, radius, dmg, color, dur) {
@@ -871,6 +873,10 @@ function killEnemy(e) {
     setBanner('BOSS SLAIN!', 'ミニボスを撃破！', e.color || '#4be0ff');
     // 宝箱を確定ドロップ（Cycle26）
     game.chests.push({ x: e.x, y: e.y, r: 15, t: 0 });
+    // 次のミニボス出現時刻を撃破時点から起算し直す（Cycle: モブフェーズ消失バグ修正）。
+    // 従来は出現時刻を90秒固定加算するだけで討伐時間と無関係だったため、
+    // HP増加で討伐が90秒を超えると倒した瞬間に次が即湧きし、モブ出現期間（主要XP源）が消えていた。
+    game.miniBossAt = game.time + WAVE_LEN;
   }
 
   // 分裂する敵は小型を散らす
@@ -1437,7 +1443,7 @@ function updateSpawning(dt) {
       mb.dmg = Math.round(mb.dmg * dmgOrderMul);
       mb.dmgMul = dmgOrderMul; // 弾幕系攻撃(enemyRing/爆弾/狙撃弾)のダメージにも同率を適用
       mb.color = bossColors[bt] || '#4be0ff';
-      if (bt === 'charger') { mb.r = 55; } // 突進型は0.8倍サイズ・移動速度は通常のまま（突進時のみ高速・ユーザー要望）
+      if (bt === 'charger') { mb.r = 55; mb.dmg = Math.round(mb.dmg * 0.5); } // 突進型は0.8倍サイズ・移動速度は通常のまま（突進時のみ高速）。接触ダメージ半減（実プレイで「強すぎ」との要望）
       if (bt === 'sniper') { mb.move = 'orbit'; } // 狙撃型は一定距離を保って旋回しつつ狙い撃つ
     }
     g.miniBossCount++;
@@ -1986,26 +1992,43 @@ function updateBolt(dt) {
 function updateOrbit(dt) {
   const w = game.player.weapons.orbit, p = game.player;
   if (w.lv <= 0) return;
-  w.angle += w.rotSpeed * dt;
   w.cd -= dt;
-  const canHit = w.cd <= 0;
-  // 当てづらいとの声を受け判定を拡大（軌道の半径分だけ弧状にカバーし、隙間を実質埋める）
-  const hitR = w.evolved ? 20 : 16;
-  for (let i = 0; i < w.count; i++) {
-    const a = w.angle + (TAU / w.count) * i;
-    const ox = p.x + Math.cos(a) * w.radius;
-    const oy = p.y + Math.sin(a) * w.radius;
-    if (canHit) {
-      for (const e of game.enemies) {
-        if (e.dead) continue;
-        if (dist2(ox, oy, e.x, e.y) < (e.r + hitR) * (e.r + hitR)) {
-          damageEnemy(e, weaponDmg(w), Math.cos(a) * 80, Math.sin(a) * 80, false);
-          burst(ox, oy, '#9fe8ff', 3, 120);
-        }
+  if (w.cd <= 0) {
+    w.cd = w.interval;
+    // 近くの敵の方向へ、count本を扇状に投げる（狙う敵がいなければ正面へ）
+    const target = nearestEnemy(p.x, p.y);
+    const baseA = target ? Math.atan2(target.y - p.y, target.x - p.x) : w.angle;
+    const spread = 0.5;
+    for (let i = 0; i < w.count; i++) {
+      const a = baseA + (w.count > 1 ? (i / (w.count - 1) - 0.5) * spread : 0);
+      w.blades.push({ x: p.x, y: p.y, vx: Math.cos(a) * w.speed, vy: Math.sin(a) * w.speed, dist: 0, returning: false, hitSet: new Set(), spin: 0 });
+    }
+    w.angle += 0.9; // 敵がいない時の投擲方向を少しずつ変える
+  }
+  const hitR = w.evolved ? 20 : 15;
+  for (let i = w.blades.length - 1; i >= 0; i--) {
+    const bl = w.blades[i];
+    bl.spin += dt * 16;
+    if (!bl.returning) {
+      bl.x += bl.vx * dt; bl.y += bl.vy * dt;
+      bl.dist += Math.hypot(bl.vx, bl.vy) * dt;
+      if (bl.dist >= w.range) { bl.returning = true; bl.hitSet.clear(); }
+    } else {
+      const dx = p.x - bl.x, dy = p.y - bl.y;
+      const d = Math.hypot(dx, dy) || 1;
+      bl.vx = (dx / d) * w.speed; bl.vy = (dy / d) * w.speed;
+      bl.x += bl.vx * dt; bl.y += bl.vy * dt;
+      if (d < 20) { w.blades.splice(i, 1); continue; }
+    }
+    for (const e of game.enemies) {
+      if (e.dead || bl.hitSet.has(e)) continue;
+      if (dist2(bl.x, bl.y, e.x, e.y) < (e.r + hitR) * (e.r + hitR)) {
+        damageEnemy(e, weaponDmg(w), bl.vx * 0.3, bl.vy * 0.3, false);
+        bl.hitSet.add(e);
+        burst(bl.x, bl.y, '#9fe8ff', 3, 100);
       }
     }
   }
-  if (canHit) w.cd = w.evolved ? 0.11 : 0.16;
 }
 
 function updateNova(dt) {
@@ -2315,6 +2338,22 @@ function glowCircle(x, y, r, color, blur) {
   ctx.shadowColor = color; ctx.shadowBlur = blur || 14;
   ctx.fillStyle = color;
   ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
+  ctx.restore();
+}
+
+// 回転する十字形状でブーメランを描く
+function drawBoomerangBlade(x, y, r, color, spin) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(spin);
+  ctx.shadowColor = color; ctx.shadowBlur = 16;
+  ctx.strokeStyle = color; ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(-r, 0); ctx.lineTo(r, 0);
+  ctx.moveTo(0, -r); ctx.lineTo(0, r);
+  ctx.stroke();
+  ctx.fillStyle = color;
+  ctx.beginPath(); ctx.arc(0, 0, r * 0.35, 0, TAU); ctx.fill();
   ctx.restore();
 }
 
@@ -3127,12 +3166,13 @@ function drawWeapons() {
     ctx.beginPath(); ctx.arc(s.x, s.y, w.frost.radius, 0, TAU); ctx.fill(); ctx.stroke();
     ctx.restore();
   }
-  // オービット
+  // ブーメラン（往復斬撃）
   if (w.orbit.lv > 0) {
-    for (let i = 0; i < w.orbit.count; i++) {
-      const a = w.orbit.angle + (TAU / w.orbit.count) * i;
-      const s = worldToScreen(p.x + Math.cos(a) * w.orbit.radius, p.y + Math.sin(a) * w.orbit.radius);
-      glowCircle(s.x, s.y, w.orbit.evolved ? 16 : 12, w.orbit.evolved ? '#8af0ff' : '#4fd2ff', 16);
+    const color = w.orbit.evolved ? '#8af0ff' : '#4fd2ff';
+    const r = w.orbit.evolved ? 16 : 12;
+    for (const bl of w.orbit.blades) {
+      const s = worldToScreen(bl.x, bl.y);
+      drawBoomerangBlade(s.x, s.y, r, color, bl.spin);
     }
   }
   // 弾（進行方向に伸ばして「飛び道具」と分かるように）
@@ -3661,13 +3701,13 @@ function drawStatus() {
     let info = 'Lv' + (wp.lv || 1);
     if (wp.dmg != null) info += '　威力 ' + Math.round(wp.dmg * p.dmgMul);
     if (key === 'bolt') info += '　弾数 ' + wp.count;
-    if (key === 'orbit') info += '　数 ' + wp.count;
+    if (key === 'orbit') info += '　発射数 ' + wp.count;
     if (key === 'thunder') info += '　連鎖 ' + wp.chains;
     if (key === 'mine') info += '　設置 ' + wp.max;
     ctx.fillText(info, rx + 34, ry + 16);
     if (!wp.evolved) {
-      // Cycle25: 進化条件をその場で確認できるようにする（bolt=同時発射3 / orbit=衛星4 / 他=Lv4）
-      const need = key === 'bolt' ? ['同時発射', wp.count, 3] : key === 'orbit' ? ['衛星の数', wp.count, 4] : ['Lv', wp.lv, 4];
+      // Cycle25: 進化条件をその場で確認できるようにする（bolt=同時発射3 / orbit=発射数3 / 他=Lv4）
+      const need = key === 'bolt' ? ['同時発射', wp.count, 3] : key === 'orbit' ? ['発射数', wp.count, 3] : ['Lv', wp.lv, 4];
       const ready = need[1] >= need[2];
       ctx.fillStyle = ready ? '#ffd23f' : '#7f93b5';
       ctx.fillText(ready ? '★ 進化カード出現中！' : '進化まで：' + need[0] + ' ' + need[1] + ' / ' + need[2], rx + 34 + ctx.measureText(info).width + 16, ry + 16);
