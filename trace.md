@@ -1254,3 +1254,9 @@ _[Checkpoint: 6a522322 — edited SPEC.md; edited SPEC.md; edited SPEC.md]_
 [11:06:14] ACT: edited SPEC.md
 [11:06:25] ACT: edited SPEC.md
 [11:09:37] OBSERVE: read shake_check.png
+
+
+---
+_[Checkpoint: 6a5224a7 — edited game.js; edited SPEC.md; edited SPEC.md]_
+---
+
