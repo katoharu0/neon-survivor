@@ -46,8 +46,13 @@ function setupHiDPI() {
 }
 
 // スマホ/PC問わず、画面に収まる最大サイズへ（縦横比 960:600 を保ったまま）拡大縮小する
+// iOS Safariはアドレスバーの表示/非表示で window.innerWidth/innerHeight が実際に見えている
+// 範囲とズレることがあり、それがタップ位置とゲーム内座標のズレの原因になり得るため、
+// 対応している端末では「実際に見えている範囲」を表す visualViewport を優先して使う
 function fitCanvas() {
-  const vw = window.innerWidth, vh = window.innerHeight;
+  const vv = window.visualViewport;
+  const vw = vv ? vv.width : window.innerWidth;
+  const vh = vv ? vv.height : window.innerHeight;
   const scale = Math.min(vw / W, vh / H);
   canvas.style.width = Math.round(W * scale) + 'px';
   canvas.style.height = Math.round(H * scale) + 'px';
@@ -80,6 +85,14 @@ setupHiDPI();
 fitCanvas();
 addEventListener('resize', onResize);
 addEventListener('orientationchange', () => setTimeout(onResize, 150));
+// iOS Safariはアドレスバーの表示/非表示が resize イベントに乗らないことがあり、
+// それがタップ位置とcanvas表示サイズのズレの原因になり得るため visualViewport も監視する
+if (window.visualViewport) {
+  visualViewport.addEventListener('resize', onResize);
+  visualViewport.addEventListener('scroll', onResize);
+}
+// 読み込み直後はSafariのアドレスバーがまだ収まりきっていないことがあるため、少し待って再計算する
+setTimeout(onResize, 300);
 
 // ---- 便利関数 -------------------------------------------------------------
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -314,6 +327,12 @@ function endTouch(e) {
 }
 canvas.addEventListener('touchend', endTouch, { passive: false });
 canvas.addEventListener('touchcancel', endTouch, { passive: false });
+
+// canvasの外側（画面比率が合わずできる黒い余白）に指が触れると、上のcanvas用ハンドラーが
+// 発火せずiOS Safari標準の「引っ張るとゴムのように伸びる」ページバウンスが起きることがある。
+// このバウンス中は position:fixed の #wrap の見た目の描画位置が一瞬ズレる既知の挙動があり、
+// タップ位置とゲーム内座標がズレて見える不具合の一因と考えられるため、ページ全体のスクロールを禁止する
+document.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
 
 // =========================================================================
 //  ゲーム状態

@@ -1,10 +1,12 @@
   /* 画面全体を黒くして、ゲームを中央に置く */
   html, body {
     margin: 0; height: 100%; background: #05060c; overflow: hidden;
+    overscroll-behavior: none; /* iOS Safariの引っ張りバウンスを抑止（position:fixed要素の描画ズレ対策） */
     font-family: "Segoe UI", system-ui, sans-serif; color: #cfe8ff;
   }
   #wrap {
     position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    overscroll-behavior: none;
   }
   /* ゲーム画面。光彩で「ネオンっぽさ」を出す */
   canvas {
