@@ -854,3 +854,9 @@ _[Checkpoint: 6a511837 — edited game.js; edited game.js; edited game.js]_
 _[Checkpoint: 6a511fd0 — edited SPEC.md; edited SPEC.md; edited SPEC.md]_
 ---
 
+
+
+---
+_[Checkpoint: 6a51bd37 — edited SPEC.md; edited SPEC.md; edited SPEC.md]_
+---
+
