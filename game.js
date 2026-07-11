@@ -373,7 +373,7 @@ function newPlayer() {
       // 最寄りの敵に落雷し、近くの敵へ連鎖する
       thunder: { lv: 0, evolved: false, cd: 0, interval: 1.6, dmg: 20, chains: 3, range: 220 },
       // 周囲の敵を凍らせて遅くする冷気（小ダメージ＋減速）
-      frost:   { lv: 0, evolved: false, cd: 0, tick: 0.35, dmg: 5, radius: 192, slow: 0.5 }, // 初期範囲0.8倍（ユーザー要望）
+      frost:   { lv: 0, evolved: false, cd: 0, tick: 0.35, dmg: 5, radius: 154, slow: 0.5 }, // 範囲をさらに0.8倍（ユーザー要望）
       // 地雷を設置。敵が触れると爆発（範囲ダメージ）
       mine:    { lv: 0, evolved: false, cd: 0, interval: 1.4, dmg: 44, radius: 78, max: 6 },
     },
@@ -446,19 +446,21 @@ function enemyKinds(t) {
   const xs = (base) => Math.max(1, Math.ceil(base * xpScale));
   const ds = (base) => Math.round(base * dmgScale * 0.8); // 攻撃力全体0.8倍（ユーザー要望）
   const ss = (base) => base * spdScale * 0.8;             // 移動速度全体0.8倍（ユーザー要望）
+  const ssMob = (base) => ss(base) * 1.3;                  // モブ敵はさらに1.3倍（ユーザー要望。ミニボス/ラスボスは対象外）
   return {
-    grunt:    { hp: 24,  speed: ss(68),  r: 16, dmg: ds(14), xp: xs(1), color: '#ff5c8a', shape: 'circle', move: 'chase' },
-    swift:    { hp: 16,  speed: ss(142), r: 13, dmg: ds(11), xp: xs(1), color: '#ffd23f', shape: 'tri',    move: 'chase' },
-    tank:     { hp: 120, speed: ss(58),  r: 26, dmg: ds(25), xp: xs(3), color: '#7c5cff', shape: 'hex',    move: 'chase' },
-    splitter: { hp: 46,  speed: ss(60),  r: 19, dmg: ds(15), xp: xs(2), color: '#6bffb0', shape: 'square', move: 'chase', splits: true },
-    spitter:  { hp: 38,  speed: ss(54),  r: 17, dmg: ds(15), xp: xs(2), color: '#ff9b3d', shape: 'circle', move: 'chase', ranged: true },
-    weaver:   { hp: 22,  speed: ss(110), r: 15, dmg: ds(11), xp: xs(1), color: '#ff8af0', shape: 'circle', move: 'weave' },
-    bomber:   { hp: 37,  speed: ss(74),  r: 18, dmg: ds(31), xp: xs(2), color: '#ff7b3d', shape: 'square', move: 'bomb' },
-    orbiter:  { hp: 30,  speed: ss(120), r: 15, dmg: ds(14), xp: xs(2), color: '#8a7bff', shape: 'tri',    move: 'orbit', ranged: true }, // 距離を保って旋回しながら撃つ
-    brute:    { hp: 190, speed: ss(52),  r: 29, dmg: ds(42), xp: xs(4), color: '#ff5c3d', shape: 'hex',    move: 'chase' },                // 鈍重だが一撃が重い
+    grunt:    { hp: 24,  speed: ssMob(68),  r: 16, dmg: ds(14), xp: xs(1), color: '#ff5c8a', shape: 'circle', move: 'chase' },
+    swift:    { hp: 16,  speed: ssMob(142), r: 13, dmg: ds(11), xp: xs(1), color: '#ffd23f', shape: 'tri',    move: 'chase' },
+    tank:     { hp: 120, speed: ssMob(58),  r: 26, dmg: ds(25), xp: xs(3), color: '#7c5cff', shape: 'hex',    move: 'chase' },
+    splitter: { hp: 46,  speed: ssMob(60),  r: 19, dmg: ds(15), xp: xs(2), color: '#6bffb0', shape: 'square', move: 'chase', splits: true },
+    spitter:  { hp: 38,  speed: ssMob(54),  r: 17, dmg: ds(15), xp: xs(2), color: '#ff9b3d', shape: 'circle', move: 'chase', ranged: true },
+    weaver:   { hp: 22,  speed: ssMob(110), r: 15, dmg: ds(11), xp: xs(1), color: '#ff8af0', shape: 'circle', move: 'weave' },
+    bomber:   { hp: 37,  speed: ssMob(74),  r: 18, dmg: ds(31), xp: xs(2), color: '#ff7b3d', shape: 'square', move: 'bomb' },
+    orbiter:  { hp: 30,  speed: ssMob(120), r: 15, dmg: ds(14), xp: xs(2), color: '#8a7bff', shape: 'tri',    move: 'orbit', ranged: true }, // 距離を保って旋回しながら撃つ
+    brute:    { hp: 190, speed: ssMob(52),  r: 29, dmg: ds(42), xp: xs(4), color: '#ff5c3d', shape: 'hex',    move: 'chase' },                // 鈍重だが一撃が重い
     // ミニボスXPは専用の急カーブ：84×(1+t/120)。従来(28×(1+t/200))比で3.6〜4.4倍、
     // 後半のボスほど報酬が大きくなる（ユーザー要望：3倍以上・時間で変わるように）
-    miniboss: { hp: 1900, speed: ss(76),  r: 45, dmg: ds(30), xp: Math.ceil(84 * (1 + t / 120)), color: '#4be0ff', shape: 'boss',  move: 'chase' }, // ここは出現順で強くなる前の基礎値（1匹目相当）。2〜5匹目はorderMulで加算（ユーザー要望：終盤ほど少しずつ強く）
+    // 基礎HPを1900→2300に増強（ユーザー要望：50%フェーズの攻撃を見る前に倒されてしまう問題への対応）
+    miniboss: { hp: 2000, speed: ss(76),  r: 45, dmg: ds(30), xp: Math.ceil(84 * (1 + t / 120)), color: '#4be0ff', shape: 'boss',  move: 'chase' }, // ここは出現順で強くなる前の基礎値（1匹目相当）。2〜5匹目はorderMulで加算（ユーザー要望：終盤ほど少しずつ強く。ただしAI検証でコンティニュー回数が跳ね上がったため2300→2000へ緩和）
   };
 }
 
@@ -892,7 +894,8 @@ function gainXP(amount) {
     p.xp -= p.xpNext;
     p.level++;
     // 後半ほど重くなる2次曲線。レベルアップ回数を抑える代わりに1回の強化量を上げた（ユーザー要望）
-    p.xpNext = Math.round(5 + p.level * 3.8 + p.level * p.level * 0.2);
+    // 全体を1/0.8倍(=1.25倍)して、レベルの上がりやすさを0.8倍に抑える（ユーザー要望）
+    p.xpNext = Math.round((5 + p.level * 3.8 + p.level * p.level * 0.2) / 0.8);
     rollChoices();
     pointer.down = false; // レベルアップ突入時も移動入力をリセット
     state = 'levelup';
@@ -1428,9 +1431,9 @@ function updateSpawning(dt) {
       // レベル補正は上限を設けて頭打ちに（撃破が長引く→雑魚でレベルが上がる→次のミニボスがさらに硬くなる、
       // という無限硬化の死のスパイラルを防ぐため。上限なしだとAI検証で4体目以降が事実上倒せなくなっていた）
       const mbLvScale = 1 + Math.min(20, Math.max(0, p.level - 6)) * 0.08;
-      // 出現順で少しずつ強くなる（1匹目=等倍〜5匹目=約1.7倍）。ラスボスHPだけを吊り上げる単発調整ではなく、
-      // ローテ全体に緩やかな傾斜をつけて終盤ほど硬く・痛くする（ユーザー要望）
-      const orderMul = 1 + g.miniBossCount * 0.18;
+      // 出現順で少しずつ強くなる（1匹目=等倍〜5匹目=約2倍）。ラスボスHPだけを吊り上げる単発調整ではなく、
+      // ローテ全体に緩やかな傾斜をつけて終盤ほど硬く・痛くする（ユーザー要望：段階に合わせてもっと硬く）
+      const orderMul = 1 + g.miniBossCount * 0.19; // AI検証で0.24だと終盤の硬さが行き過ぎたため緩和
       const dmgOrderMul = 1 + g.miniBossCount * 0.13;
       mb.hp = Math.round(mb.hp * mbLvScale * orderMul); mb.maxHp = mb.hp;
       mb.dmg = Math.round(mb.dmg * dmgOrderMul);
@@ -1467,7 +1470,9 @@ function spawnFinalBoss() {
   // （ラスボスHPだけを吊り上げる調整はしない・ユーザー要望）。5匹目ミニボスの出現順倍率(1.72倍)を
   // 引き継いだ「6体目」相当として、ミニボス基礎HPの約20倍をベースにする
   const finalMbOrderMul = 1 + 4 * 0.18;
-  const mbBaseHp = enemyKinds(g.time).miniboss.hp;
+  // ミニボス基礎HPの調整値(2300)から独立した固定値。ミニボスだけ体力を増やしても
+  // ラスボスHPは現状のまま変えない（ユーザー要望：ラスボスは体力丁度良かった）
+  const mbBaseHp = 1900;
   const hpBase = mbBaseHp * finalMbOrderMul * 20 * lvScale;
   const bx = p.x + Math.cos(ang) * rad, by = p.y + Math.sin(ang) * rad;
   const e = {
