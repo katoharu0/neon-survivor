@@ -338,7 +338,7 @@ function newPlayer() {
     level: 1, xp: 0, xpNext: 3,
     invuln: 0,             // 被弾後の無敵時間
     regenDelay: 0,         // 被弾後しばらく回復停止（粘りすぎ防止）
-    pickupRange: 175,      // XP吸引の範囲（広めにして回収しやすく）
+    pickupRange: 175,      // 回復オーブの吸引範囲（XPは撃破時に自動加算されるためジェム吸引には使わない）
     dmgMul: 1,             // 全武器の与ダメージ倍率
     regen: 0.3,            // 毎秒回復（少しだけ初期付与）
     critChance: 0,         // 会心率（0〜）。会心で2.2倍
@@ -349,9 +349,9 @@ function newPlayer() {
     barrierActive: false,  // バリアアップグレードを取得済みか
     barrierCharge: 0,      // バリアの充電量（20秒で1発分）
     activeSkill: null,     // アクティブスキル（'dash'）。宝箱で入手するまで null
-    skillLv: 0,            // 宝箱で進んだスキル強化の段階（0〜4）
-    skillCdMul: 1,         // スキルCD倍率（宝箱の強化で半分ずつ縮む）
-    dashInvuln: false,     // ダッシュ中に無敵になるか（宝箱2個目の強化で true）
+    skillLv: 0,            // 宝箱で進んだスキル強化の段階（0個目=未取得、1個目以降は毎回CD半減）
+    skillCdMul: 1,         // スキルCD倍率（宝箱2個目以降の強化で半分ずつ縮む）
+    dashInvuln: false,     // ダッシュ中に無敵になるか（宝箱1個目の強化で true）
     dashCd: 0,             // スキルのクールダウン
     dashing: 0,            // ダッシュ中の残り時間（0.18秒）
     hurtFlash: 0,          // 被弾の赤フラッシュ残り時間（無敵時間とは別管理）
@@ -366,8 +366,8 @@ function newPlayer() {
     weapons: {
       // オートエイムの弾。最初から所持
       bolt:    { lv: 1, evolved: false, cd: 0, interval: 0.50, dmg: 14, count: 1, speed: 460, pierce: 0, spread: 0.18 },
-      // 体の周りを回る光弾
-      orbit:   { lv: 0, evolved: false, cd: 0, count: 2, dmg: 10, radius: 80, rotSpeed: 2.6, angle: 0 },
+      // 体の周りを回る光弾（当てづらい・弱いとの声を受け強化：初期数3・威力up・軌道拡大・当たり判定拡大）
+      orbit:   { lv: 0, evolved: false, cd: 0, count: 3, dmg: 16, radius: 100, rotSpeed: 3.0, angle: 0 },
       // 周期的に全方位へ広がる衝撃波
       nova:    { lv: 0, evolved: false, cd: 0, interval: 3.0, dmg: 26, radius: 230, speed: 520 },
       // 最寄りの敵に落雷し、近くの敵へ連鎖する
@@ -391,7 +391,6 @@ function resetGame(mode) {
     enemies: [],
     bullets: [],            // プレイヤーの弾
     enemyBullets: [],       // 敵の弾（spitter・ボス）
-    gems: [],
     mines: [],              // 設置された地雷
     shocks: [],             // 衝撃波リング（ノヴァ・爆発。見た目＋当たり）
     bombs: [],              // 爆撃の予告付き爆弾（爆撃型ミニボス／ラスボス）
@@ -459,8 +458,8 @@ function enemyKinds(t) {
     brute:    { hp: 190, speed: ssMob(52),  r: 29, dmg: ds(42), xp: xs(4), color: '#ff5c3d', shape: 'hex',    move: 'chase' },                // 鈍重だが一撃が重い
     // ミニボスXPは専用の急カーブ：84×(1+t/120)。従来(28×(1+t/200))比で3.6〜4.4倍、
     // 後半のボスほど報酬が大きくなる（ユーザー要望：3倍以上・時間で変わるように）
-    // 基礎HPを1900→2300に増強（ユーザー要望：50%フェーズの攻撃を見る前に倒されてしまう問題への対応）
-    miniboss: { hp: 2000, speed: ss(76),  r: 45, dmg: ds(30), xp: Math.ceil(84 * (1 + t / 120)), color: '#4be0ff', shape: 'boss',  move: 'chase' }, // ここは出現順で強くなる前の基礎値（1匹目相当）。2〜5匹目はorderMulで加算（ユーザー要望：終盤ほど少しずつ強く。ただしAI検証でコンティニュー回数が跳ね上がったため2300→2000へ緩和）
+    // 基礎HPを2000→8000に大幅増強（ユーザー要望：実プレイで5秒かからず倒せてしまった。30秒程度は粘れる硬さに）
+    miniboss: { hp: 8000, speed: ss(76),  r: 45, dmg: ds(30), xp: Math.ceil(84 * (1 + t / 120)), color: '#4be0ff', shape: 'boss',  move: 'chase' }, // ここは出現順で強くなる前の基礎値（1匹目相当）。2〜5匹目はorderMulで加算（ユーザー要望：終盤ほど少しずつ強く）
   };
 }
 
@@ -735,8 +734,6 @@ function applyChoice(idx) {
   c.apply();
   // 取得回数を記録（Cycle21: これまで未加算で「未取得1枚保証」が機能していなかったバグ修正）
   if (c.id) game.player.upgradeCount[c.id] = (game.player.upgradeCount[c.id] || 0) + 1;
-  // レベルアップ後に画面内のXPジェムを全部自動吸引（Cycle4）
-  for (const gem of game.gems) { gem.vx += (game.player.x - gem.x) * 4; gem.vy += (game.player.y - gem.y) * 4; }
   game.rerollsLeft = 1;
   pointer.down = false;
   state = 'playing';
@@ -754,27 +751,27 @@ function rerollChoices() {
   Sound.pick();
 }
 
-// 宝箱のスキル強化ラダー：開けるたびに右下ボタンのスキルが決まった順で1段ずつ進化していく
-const SKILL_UPGRADES = [
-  { icon: '⚡', name: 'フェイズダッシュ', desc: 'Space / ⚡ボタンで発動。向いている方向へ短距離を一気に加速する（クールダウン6秒）', apply(p) { p.activeSkill = 'dash'; } },
-  { icon: '🛡️', name: '無敵ダッシュ', desc: 'ダッシュ中が無敵に！敵や弾をすり抜けて駆け抜けられる', apply(p) { p.dashInvuln = true; } },
-  { icon: '🔋', name: 'スキルチャージャー', desc: 'スキルのクールダウンが半分（6秒→3秒）になった！', apply(p) { p.skillCdMul *= 0.5; } },
-  { icon: '💠', name: 'オーバーチャージ', desc: 'クールダウンがさらに半分（3秒→1.5秒）に！どんどん使える', apply(p) { p.skillCdMul *= 0.5; } },
-];
-// 5個目以降の宝箱の中身（スキルが最大まで進化した後）
-const CHEST_BONUS = { icon: '💖', name: 'フルリペア', desc: 'HPが全回復した！', apply(p) { p.hp = p.maxHp; } };
+// 宝箱の中身：1個目で無敵ダッシュを獲得、2個目以降は毎回クールダウンが半分になる（ユーザー要望）
+const SKILL_FIRST = {
+  icon: '🛡️', name: '無敵ダッシュ',
+  desc: 'Space / ⚡ボタンで発動。無敵になって短距離を一気に駆け抜ける（クールダウン6秒）',
+  apply(p) { p.activeSkill = 'dash'; p.dashInvuln = true; }
+};
 
-// 宝箱を開ける：スキル強化が順番に1段ずつ手に入る（全4段。以降は全回復）
+// 宝箱を開ける：1個目は無敵ダッシュ、2個目以降は毎回クールダウン半減（ユーザー要望）
 function openChest(ch) {
   const p = game.player;
   let item;
-  if (p.skillLv < SKILL_UPGRADES.length) {
-    item = SKILL_UPGRADES[p.skillLv];
-    p.skillLv++;
+  if (p.skillLv === 0) {
+    item = SKILL_FIRST;
+    item.apply(p);
   } else {
-    item = CHEST_BONUS;
+    const before = 6 * p.skillCdMul;
+    p.skillCdMul *= 0.5;
+    const after = 6 * p.skillCdMul;
+    item = { icon: '🔋', name: 'クールダウン短縮', desc: `スキルのクールダウンが半分（${before.toFixed(1)}秒→${after.toFixed(1)}秒）になった！` };
   }
-  item.apply(p);
+  p.skillLv++;
   p.hp = Math.min(p.maxHp, p.hp + 15); // おまけの回復
   game.chestsOpened++;
   floatText(ch.x, ch.y - 24, item.icon + ' ' + item.name + '!', '#ffd23f', true);
@@ -862,12 +859,10 @@ function killEnemy(e) {
     }
   }
 
-  // XPジェムをドロップ
-  const drops = e.boss ? 16 : (e.kind === 'miniboss' ? 12 : (e.elite ? 4 : 1)); // ミニボスは12個ばら撒いて「大量」感を出す（合計XPは変わらない）
-  const per = Math.max(1, Math.round(e.xp / drops));
-  for (let i = 0; i < drops; i++) {
-    game.gems.push({ x: e.x + rand(-16, 16), y: e.y + rand(-16, 16), value: per, vx: rand(-40, 40), vy: rand(-40, 40), big: e.elite || isBig });
-  }
+  // XPは緑ジェムを拾わせず即座に自動加算（ユーザー要望：経験値は自動で入るように）
+  gainXP(e.xp);
+  burst(e.x, e.y, e.elite || isBig ? '#b6ffce' : '#6bff9e', isBig ? 10 : (e.elite ? 5 : 3), 90);
+  Sound.pick();
 
   if (isBig) { game.hitstop = e.boss ? 0.18 : 0.10; } // 撃破の重み（Cycle31。シェイクはユーザー要望で廃止）
   Sound.kill();
@@ -894,8 +889,8 @@ function gainXP(amount) {
     p.xp -= p.xpNext;
     p.level++;
     // 後半ほど重くなる2次曲線。レベルアップ回数を抑える代わりに1回の強化量を上げた（ユーザー要望）
-    // 全体を1/0.8倍(=1.25倍)して、レベルの上がりやすさを0.8倍に抑える（ユーザー要望）
-    p.xpNext = Math.round((5 + p.level * 3.8 + p.level * p.level * 0.2) / 0.8);
+    // 全体を1/0.56倍(=1.786倍)して、レベルの上がりやすさを現状からさらに0.7倍に抑える（ユーザー要望）
+    p.xpNext = Math.round((5 + p.level * 3.8 + p.level * p.level * 0.2) / 0.56);
     rollChoices();
     pointer.down = false; // レベルアップ突入時も移動入力をリセット
     state = 'levelup';
@@ -997,10 +992,6 @@ function updatePlayerMovement(dt) {
     // 雑魚回避力は密集時に頭打ちにする（大量の雑魚に囲まれてボスに永久に近づけなくなるのを防ぐ）
     const aMag = Math.hypot(ax, ay);
     if (aMag > 2.5) { ax = ax / aMag * 2.5; ay = ay / aMag * 2.5; }
-    let gg = null, gd = Infinity;
-    for (const gem of g.gems) { const dd = dist2(gem.x, gem.y, p.x, p.y); if (dd < gd) { gd = dd; gg = gem; } }
-    let gx = 0, gy = 0;
-    if (gg) { const d = Math.hypot(gg.x - p.x, gg.y - p.y) || 1; gx = (gg.x - p.x) / d; gy = (gg.y - p.y) / d; }
     // ボスから離れすぎている場合は近づく（sniper等の距離を取るボス相手に膠着しないように。遠いほど強く引き寄せる）
     let bx = 0, by = 0;
     for (const e of g.enemies) {
@@ -1008,8 +999,8 @@ function updatePlayerMovement(dt) {
       const dx = e.x - p.x, dy = e.y - p.y; const d = Math.hypot(dx, dy) || 1;
       if (d > 260) { const wgt = Math.min(3, (d - 260) / 150); bx += (dx / d) * wgt; by += (dy / d) * wgt; }
     }
-    mx += ax * 2.0 + gx * 1.1 + bx * 1.4 - p.x * 0.0006;
-    my += ay * 2.0 + gy * 1.1 + by * 1.4 - p.y * 0.0006;
+    mx += ax * 2.0 + bx * 1.4 - p.x * 0.0006;
+    my += ay * 2.0 + by * 1.4 - p.y * 0.0006;
   }
   // ラッシュタイマーの減算
   if (p.rushTimer > 0) p.rushTimer -= dt;
@@ -1192,24 +1183,9 @@ function updateProjectiles(dt) {
   return true;
 }
 
-// XPジェム・回復オーブ・宝箱の吸引と回収
+// 回復オーブ・宝箱の吸引と回収（XPは撃破時に自動加算されるため、ここでは扱わない・ユーザー要望）
 function updatePickups(dt) {
   const g = game, p = g.player;
-  // --- XPジェムの吸引と回収 ---
-  for (const gem of g.gems) {
-    const dd = dist2(gem.x, gem.y, p.x, p.y);
-    if (dd < p.pickupRange * p.pickupRange) {
-      let dx = p.x - gem.x, dy = p.y - gem.y; const dl = Math.hypot(dx, dy) || 1;
-      gem.vx += (dx / dl) * 900 * dt; gem.vy += (dy / dl) * 900 * dt;
-    }
-    gem.x += gem.vx * dt; gem.y += gem.vy * dt;
-    gem.vx *= 0.9; gem.vy *= 0.9;
-    if (dd < (p.r + 10) * (p.r + 10)) {
-      gem.dead = true; gainXP(gem.value); Sound.pick();
-      // 回収時に小さなスパーク（Cycle13）
-      burst(gem.x, gem.y, gem.big ? '#b6ffce' : '#6bff9e', gem.big ? 6 : 3, 70);
-    }
-  }
 
   // --- ヘルスオーブ（移動・吸引・回収） ---
   const orbPullRange = p.hp / p.maxHp < 0.30 ? p.pickupRange * 2.5 : p.pickupRange;
@@ -1268,7 +1244,6 @@ function removeDeadEntities() {
   g.enemies = g.enemies.filter(e => !e.dead);
   g.bullets = g.bullets.filter(b => b.life > 0);
   g.enemyBullets = g.enemyBullets.filter(b => b.life > 0 && dist2(b.x, b.y, p.x, p.y) < DESPAWN_R * DESPAWN_R);
-  g.gems = g.gems.filter(x => !x.dead);
   g.mines = g.mines.filter(m => !m.dead && dist2(m.x, m.y, p.x, p.y) < DESPAWN_R * DESPAWN_R);
   g.shocks = g.shocks.filter(s => s.life > 0);
   g.bombs = g.bombs.filter(b => b.t > 0);
@@ -1411,8 +1386,7 @@ function updateSpawning(dt) {
     for (let i = 0; i < count; i++) {
       spawnEnemy(kind, { x: bx + rand(-40, 40), y: by + rand(-40, 40) });
     }
-    g.hordeArrow = { angle: ang, life: 4.0 };
-    setBanner('HORDE!', kind.toUpperCase() + ' ×' + count, '#ff9b3d');
+    g.hordeArrow = { angle: ang, life: 4.0 }; // 群れの方向を示す矢印のみ（"HORDE!"テキストは非表示・ユーザー要望）
   }
   if (g.hordeCd > 0) g.hordeCd -= dt;
 
@@ -1431,9 +1405,9 @@ function updateSpawning(dt) {
       // レベル補正は上限を設けて頭打ちに（撃破が長引く→雑魚でレベルが上がる→次のミニボスがさらに硬くなる、
       // という無限硬化の死のスパイラルを防ぐため。上限なしだとAI検証で4体目以降が事実上倒せなくなっていた）
       const mbLvScale = 1 + Math.min(20, Math.max(0, p.level - 6)) * 0.08;
-      // 出現順で少しずつ強くなる（1匹目=等倍〜5匹目=約2倍）。ラスボスHPだけを吊り上げる単発調整ではなく、
+      // 出現順で少しずつ強くなる（1匹目=等倍〜5匹目=約2.1倍）。ラスボスHPだけを吊り上げる単発調整ではなく、
       // ローテ全体に緩やかな傾斜をつけて終盤ほど硬く・痛くする（ユーザー要望：段階に合わせてもっと硬く）
-      const orderMul = 1 + g.miniBossCount * 0.19; // AI検証で0.24だと終盤の硬さが行き過ぎたため緩和
+      const orderMul = 1 + g.miniBossCount * 0.28; // 実プレイで5秒未満撃破と判明→基礎HP4倍化と合わせて底上げ（ユーザー要望：30秒目安）
       const dmgOrderMul = 1 + g.miniBossCount * 0.13;
       mb.hp = Math.round(mb.hp * mbLvScale * orderMul); mb.maxHp = mb.hp;
       mb.dmg = Math.round(mb.dmg * dmgOrderMul);
@@ -1469,10 +1443,10 @@ function spawnFinalBoss() {
   // ラスボスHPは単独の特別な数値にせず、ミニボスの出現順スケーリングの延長線上に位置づける
   // （ラスボスHPだけを吊り上げる調整はしない・ユーザー要望）。5匹目ミニボスの出現順倍率(1.72倍)を
   // 引き継いだ「6体目」相当として、ミニボス基礎HPの約20倍をベースにする
-  const finalMbOrderMul = 1 + 4 * 0.18;
-  // ミニボス基礎HPの調整値(2300)から独立した固定値。ミニボスだけ体力を増やしても
-  // ラスボスHPは現状のまま変えない（ユーザー要望：ラスボスは体力丁度良かった）
-  const mbBaseHp = 1900;
+  const finalMbOrderMul = 1 + 4 * 0.28; // ミニボス側のorderMul引き上げに連動（ユーザー要望：ラスボスは1分位かかるように）
+  // ミニボス基礎HP引き上げ(2000→8000)に連動させて同率で強化
+  // （実プレイでラスボスも短時間で倒せてしまった・ユーザー要望：1分位かかるように）
+  const mbBaseHp = 7600;
   const hpBase = mbBaseHp * finalMbOrderMul * 20 * lvScale;
   const bx = p.x + Math.cos(ang) * rad, by = p.y + Math.sin(ang) * rad;
   const e = {
@@ -1535,7 +1509,7 @@ function startCorePhase(e) {
   g.voidPhase = { boss: e, timer: 6.5, max: 6.5, shuffleT: 0, zones: [], grace: 0 };
   shuffleVoidZones(g.voidPhase);
   g.voidPhase.grace = 1.2; // フェーズ開始直後は猶予（安全地帯を確認する時間・ユーザー要望）
-  setBanner('侵食フェーズ', '安全地帯の光る円以外はダメージ床！耐えきれば隙ができる', '#7dffdc');
+  setBanner('侵食フェーズ', '安全地帯の光る円以外はダメージ床！耐えきれば反撃のチャンスが来る', '#7dffdc');
   floatText(e.x, e.y - e.r - 10, '無敵化!', '#7dffdc', true);
   Sound.overdrive(); shake(14);
 }
@@ -1562,7 +1536,6 @@ function endCorePhase(e) {
   e.coreInvuln = false;
   e.coreExposed = 4.0; // このあいだ被ダメ1.6倍（damageEnemyで参照）
   g.voidPhase = null;
-  setBanner('隙だらけ!', '今が攻めどき！被ダメージが増えている', '#ffe066');
   floatText(e.x, e.y - e.r - 10, 'チャンス!', '#ffe066', true);
   Sound.boss(); shake(10);
 }
@@ -1628,10 +1601,12 @@ function updateBossBehavior(e, dt, dx, dy, d) {
     // 猛攻モード：さらにタメ短縮＋突進速度アップで畳みかける
     if (e.chargeWarn > 0) {
       e.chargeWarn -= dt;
-      e.hitFlash = 0.06; // 赤くする（hitFlashを流用）
+      // タメ中は点滅させて「合図」を分かりやすく（一定周期でオン・オフ。ユーザー要望）
+      e.hitFlash = (Math.floor(e.chargeWarn * 10) % 2 === 0) ? 0.06 : 0;
       if (e.chargeWarn <= 0) { // 予兆終了→この瞬間のプレイヤー位置に照準して突進（歩き回避を許さない）
         const sp = p2 ? 560 : 480; // 速度480=初期プレイヤー速度210の約2.3倍（個別強化・ユーザー要望）
         e.chargeT = 1.5; e.cvx = dx * sp; e.cvy = dy * sp;
+        e.hitFlash = 0.25; // 発射の瞬間は強く1回光らせる（ユーザー要望）
         burst(e.x, e.y, '#ff3030', 18, 220);
         shake(6);
       }
@@ -1679,20 +1654,24 @@ function updateBossBehavior(e, dt, dx, dy, d) {
       floatText(e.warpTarget.x, e.warpTarget.y - 20, '⚠', '#ffff00');
     }
   } else if (bt === 'sniper') {
-    // 4匹目＝狙撃型（弾幕強化版）：距離を保って旋回しながら、丸い弾幕ではなく狙い澄ました単発弾を連続で撃ってくる（ユーザー要望）
-    // ローテ4番目の個別強化として基礎の発射数を増加（ユーザー要望）。猛攻モードでさらに連射数増加＋弾速アップ＋CD短縮
+    // 4匹目＝狙撃型（弾幕強化版）：距離を保って旋回しながら、単発ではなく3-way扇状の狙い撃ちを連続で撃ってくる
+    // （ユーザー要望：「攻撃当たる気しない・手数少ない」→ 1バーストの手数を3倍にし連射間隔とCDも短縮して迫力・命中率を強化）
     if ((e.sniperBurst || 0) > 0) {
       e.sniperBurst -= dt;
       if (e.sniperBurst <= 0) {
         const ang = Math.atan2(g.player.y - e.y, g.player.x - e.x);
-        const spd = p2 ? 480 : 430;
-        game.enemyBullets.push({ x: e.x, y: e.y, vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd, r: 6, dmg: Math.round(24 * (e.dmgMul || 1)), life: 3, color: '#39ff14' });
+        const spd = p2 ? 500 : 450;
+        const spread = 0.13; // 左右に少し散らして回避を難しくする扇状弾
+        for (const da of [-spread, 0, spread]) {
+          const a = ang + da;
+          game.enemyBullets.push({ x: e.x, y: e.y, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, r: 6, dmg: Math.round(20 * (e.dmgMul || 1)), life: 3, color: '#39ff14' });
+        }
         e.sniperShots--;
-        e.sniperBurst = e.sniperShots > 0 ? (p2 ? 0.20 : 0.26) : 0;
-        if (e.sniperShots <= 0) e.atkCd = p2 ? 1.6 : 2.3;
+        e.sniperBurst = e.sniperShots > 0 ? (p2 ? 0.16 : 0.20) : 0;
+        if (e.sniperShots <= 0) e.atkCd = p2 ? 1.3 : 1.8;
       }
     } else if (e.atkCd <= 0 && d < 640) {
-      e.sniperShots = p2 ? 8 : 6; e.sniperBurst = 0.4; // 0.4秒タメてから連射（発射数増加・個別強化）
+      e.sniperShots = p2 ? 10 : 8; e.sniperBurst = 0.35; // タメ時間短縮＋バースト回数増加（発射数増加・個別強化）
       floatText(e.x, e.y - e.r, '⚠ 照準!', '#39ff14');
     }
   } else if (bt === 'overlord') {
@@ -1710,10 +1689,12 @@ function updateBossBehavior(e, dt, dx, dy, d) {
     // 長距離突進（突進型ゆずり）：予兆のあと発射の瞬間に照準
     if ((e.chargeWarn || 0) > 0) {
       e.chargeWarn -= dt;
-      e.hitFlash = 0.06;
+      // タメ中は点滅させて「合図」を分かりやすく（一定周期でオン・オフ。ユーザー要望）
+      e.hitFlash = (Math.floor(e.chargeWarn * 10) % 2 === 0) ? 0.06 : 0;
       if (e.chargeWarn <= 0) {
         const sp = rage ? 880 : 780;
         e.chargeT = 0.8; e.cvx = dx * sp; e.cvy = dy * sp;
+        e.hitFlash = 0.25; // 発射の瞬間は強く1回光らせる（ユーザー要望）
         burst(e.x, e.y, '#ff3030', 20, 240); shake(8);
       }
     }
@@ -1907,7 +1888,8 @@ function updateOrbit(dt) {
   w.angle += w.rotSpeed * dt;
   w.cd -= dt;
   const canHit = w.cd <= 0;
-  const hitR = w.evolved ? 15 : 11;
+  // 当てづらいとの声を受け判定を拡大（軌道の半径分だけ弧状にカバーし、隙間を実質埋める）
+  const hitR = w.evolved ? 20 : 16;
   for (let i = 0; i < w.count; i++) {
     const a = w.angle + (TAU / w.count) * i;
     const ox = p.x + Math.cos(a) * w.radius;
@@ -1922,7 +1904,7 @@ function updateOrbit(dt) {
       }
     }
   }
-  if (canHit) w.cd = w.evolved ? 0.16 : 0.22;
+  if (canHit) w.cd = w.evolved ? 0.11 : 0.16;
 }
 
 function updateNova(dt) {
@@ -2146,7 +2128,6 @@ function render() {
   if (game) {
     drawBombs();
     drawShocks();
-    drawGems();
     drawMines();
     drawHealthOrbs();
     drawChests();
@@ -3039,7 +3020,7 @@ function drawWeapons() {
     for (let i = 0; i < w.orbit.count; i++) {
       const a = w.orbit.angle + (TAU / w.orbit.count) * i;
       const s = worldToScreen(p.x + Math.cos(a) * w.orbit.radius, p.y + Math.sin(a) * w.orbit.radius);
-      glowCircle(s.x, s.y, w.orbit.evolved ? 12 : 8, w.orbit.evolved ? '#8af0ff' : '#4fd2ff', 16);
+      glowCircle(s.x, s.y, w.orbit.evolved ? 16 : 12, w.orbit.evolved ? '#8af0ff' : '#4fd2ff', 16);
     }
   }
   // 弾（進行方向に伸ばして「飛び道具」と分かるように）
@@ -3051,31 +3032,6 @@ function drawWeapons() {
     ctx.shadowColor = b.color || '#ffe34d'; ctx.shadowBlur = 12;
     ctx.fillStyle = b.color || '#ffe34d';
     ctx.beginPath(); ctx.ellipse(0, 0, b.r * 2.0, b.r * 0.75, 0, 0, TAU); ctx.fill();
-    ctx.restore();
-  }
-}
-
-function drawGems() {
-  for (const gem of game.gems) {
-    const s = worldToScreen(gem.x, gem.y);
-    const r = gem.big ? 11 : 8;
-    const col = gem.big ? '#b6ffce' : '#6bff9e';
-    ctx.save();
-    ctx.shadowColor = col; ctx.shadowBlur = 14;
-    ctx.fillStyle = col;
-    // ダイヤモンド（45度回転した正方形）で経験値ジェムと分かる形に
-    ctx.beginPath();
-    ctx.moveTo(s.x, s.y - r);
-    ctx.lineTo(s.x + r, s.y);
-    ctx.lineTo(s.x, s.y + r);
-    ctx.lineTo(s.x - r, s.y);
-    ctx.closePath(); ctx.fill();
-    // 外枠（輪郭）
-    ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineWidth = 1;
-    ctx.stroke();
-    // 中心に白いハイライト
-    ctx.fillStyle = 'rgba(255,255,255,0.8)';
-    ctx.beginPath(); ctx.arc(s.x - r * 0.2, s.y - r * 0.25, r * 0.28, 0, TAU); ctx.fill();
     ctx.restore();
   }
 }
@@ -3261,8 +3217,6 @@ function drawHUD() {
     ctx.translate(cx2, cy2); ctx.rotate(ha.angle);
     ctx.fillStyle = '#ff9b3d'; ctx.shadowColor = '#ff9b3d'; ctx.shadowBlur = 12;
     ctx.beginPath(); ctx.moveTo(22, 0); ctx.lineTo(-10, -10); ctx.lineTo(-10, 10); ctx.closePath(); ctx.fill();
-    ctx.font = 'bold 9px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#fff';
-    ctx.shadowBlur = 0; ctx.fillText('HORDE', 0, 20);
     ctx.restore();
   }
 
@@ -3570,7 +3524,7 @@ function drawStatus() {
     ['反射ダメージ', Math.round(p.thorns || 0)],
     ['毎秒回復', p.regen.toFixed(1)],
     ['XP獲得倍率', '×' + p.xpMul.toFixed(2) + (game.xpBoostTimer > 0 ? ' (+60% ' + Math.ceil(game.xpBoostTimer) + 's)' : '')],
-    ['XP回収範囲', Math.round(p.pickupRange)],
+    ['オーブ吸引範囲', Math.round(p.pickupRange)],
   ];
   for (const [k, v] of rows) {
     ctx.fillStyle = '#9fb6d8'; ctx.fillText(k, lx, ly);
