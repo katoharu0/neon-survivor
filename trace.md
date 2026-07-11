@@ -1173,3 +1173,9 @@ _[Checkpoint: 6a51e363 — edited style.css; wrote .playwright-mcp/scratch/touch
 [09:58:52] OBSERVE: read game.js
 [10:00:00] OBSERVE: read healthorb-1.png
 [10:00:34] OBSERVE: read healthorb-3.png
+
+
+---
+_[Checkpoint: 6a521468 — タスクC全8項目(a-h)の実機検証完了]_
+---
+
