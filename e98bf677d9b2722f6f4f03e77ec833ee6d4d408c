@@ -1,0 +1,1 @@
+{"git_oid":"e98bf677d9b2722f6f4f03e77ec833ee6d4d408c","parent_oid":"df3cd04a43ad770cfcf40840e5b9b733bd226174","ai_metadata":{"model_name":"claude-fable-5","prompt":"直すべきとこ直して、バックアップはいらないし、\n仕様書？方針書？は作って置いて欲しいし、都度更新してほしい","agent_id":"claude-code","usage":null},"test_metrics":null,"timestamp":"2026-07-06T07:47:11.612432313Z"}
